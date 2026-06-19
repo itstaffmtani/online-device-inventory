@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Advanced Hardware Diagnostic Tool</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+</head>
+<body class="bg-light">
+    <div class="container py-5">
+        <div class="row mb-4 align-items-center">
+            <div class="col-md-8">
+                <h1 class="display-6 fw-bold text-dark">Diagnostic Perangkat Keras Pro </h1> <p class="text-muted">(percayalah 🙏🏾)</p>
+                <p class="text-muted mb-0">Deteksi spesifikasi komponen hardware berbasis platform lokal secara mendalam Pokok'e.</p>
+            </div>
+            <div class="col-md-4 text-end">
+                <a href="/export/csv" class="btn btn-success px-4 shadow-sm">Ekspor CSV</a>
+                <a href="/export/pdf" class="btn btn-danger px-4 shadow-sm">Ekspor PDF</a>
+            </div>
+        </div>
+
+        <div class="card shadow-sm mb-4 border-0">
+            <div class="card-header bg-primary text-white fw-bold">💻 Perangkat & Sistem Operasi</div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-sm-4"><strong>Merk / Model:</strong></div>
+                    <div class="col-sm-8">{{ data.perangkat.merk }}</div>
+                </div>
+                <hr>
+                <div class="row">
+                    <div class="col-sm-4"><strong>OS Platform:</strong></div>
+                    <div class="col-sm-8">{{ data.perangkat.os }}</div>
+                </div>
+                <hr>
+                <div class="row">
+                    <div class="col-sm-4"><strong>Arsitektur:</strong></div>
+                    <div class="col-sm-8">{{ data.perangkat.arsitektur }}</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="card shadow-sm mb-4 border-0">
+            <div class="card-header bg-secondary text-white fw-bold">🧠 Prosesor / CPU</div>
+            <div class="card-body">
+                <p><strong>Model CPU:</strong> {{ data.cpu.model }}</p>
+                <p><strong>Inti Kerja:</strong> {{ data.cpu.cores_fisik }} Cores Fisik / {{ data.cpu.total_thread }} Threads (Logis)</p>
+                <p><strong>Kecepatan Maksimal:</strong> {{ data.cpu.kecepatan }}</p>
+            </div>
+        </div>
+
+        <div class="card shadow-sm mb-4 border-0">
+            <div class="card-header bg-warning text-dark fw-bold">📟 Memori / RAM</div>
+            <div class="card-body">
+                <p><strong>Total Kapasitas:</strong> {{ data.ram.total }}</p>
+                <p><strong>Sedang Digunakan:</strong> {{ data.ram.used }}</p>
+                <div class="progress style-progress" style="height: 25px;">
+                  <div class="progress-bar bg-warning text-dark fw-bold" role="progressbar" style="width: {{ data.ram.percent }}%;">{{ data.ram.percent }}%</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="card shadow-sm mb-4 border-0">
+            <div class="card-header bg-info text-white fw-bold">💾 Penyimpanan / Disk</div>
+            <div class="card-body">
+                <h6 class="fw-bold text-muted">Tipe Media Fisik Drive:</h6>
+                <ul>
+                    {% for disk_f in data.disk.fisik %}
+                    <li class="fw-bold text-dark">{{ disk_f }}</li>
+                    {% endfor %}
+                </ul>
+                <h6 class="fw-bold text-muted mt-4">Status Partisi Logis:</h6>
+                <div class="table-responsive">
+                    <table class="table table-hover align-middle">
+                        <thead class="table-light">
+                            <tr>
+                                <th>Drive</th>
+                                <th>File System</th>
+                                <th>Total Ukuran</th>
+                                <th>Sisa Ruang</th>
+                                <th>Persentase Terpakai</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for part in data.disk.logis %}
+                            <tr>
+                                <td class="fw-bold">{{ part.drive }}</td>
+                                <td><span class="badge bg-secondary">{{ part.fstype }}</span></td>
+                                <td>{{ part.total }}</td>
+                                <td>{{ part.free }}</td>
+                                <td>
+                                    <div class="progress" style="height: 18px;">
+                                        <div class="progress-bar bg-info" role="progressbar" style="width: {{ part.percent }};">{{ part.percent }}</div>
+                                    </div>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <div class="card shadow-sm mb-4 border-0">
+            <div class="card-header bg-dark text-white fw-bold">🎮 Kartu Grafis / GPU</div>
+            <div class="card-body">
+                <ol class="mb-0">
+                    {% for gpu in data.gpu %}
+                    <li class="my-1 fw-bold">{{ gpu }}</li>
+                    {% endfor %}
+                </ol>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- Footer -->
+    <footer class="bg-dark text-white-50 py-5 mt-5 border-top border-secondary">
+        <div class="container">
+            <div class="row">
+                <div class="col-md-4 mb-4 mb-md-0">
+                    <h5 class="text-white fw-bold mb-3">💻 Diagnostic Tool</h5>
+                    <p class="small">Aplikasi profesional untuk analisis mendalam spesifikasi perangkat keras komputer Anda dengan akurasi tinggi.</p>
+                </div>
+                <div class="col-md-4 mb-4 mb-md-0">
+                    <h5 class="text-white fw-bold mb-3">🔧 Fitur Utama</h5>
+                    <ul class="list-unstyled small">
+                        <li class="mb-2"><i class="bi bi-check-circle"></i> Deteksi Hardware Real-time</li>
+                        <li class="mb-2"><i class="bi bi-check-circle"></i> Export CSV & PDF</li>
+                        <li class="mb-2"><i class="bi bi-check-circle"></i> Monitoring Performa</li>
+                        <li class="mb-2"><i class="bi bi-check-circle"></i> Laporan Terperinci</li>
+                    </ul>
+                </div>
+                <div class="col-md-4">
+                    <h5 class="text-white fw-bold mb-3">📞 Informasi</h5>
+                    <p class="small mb-2">
+                        <strong class="text-white">Versi:</strong> 1.0.0 Pro (percayalah ini pro asli !)
+                    </p>
+                    <p class="small mb-2">
+                        <strong class="text-white">Platform:</strong> Cross-Platform
+                    </p>
+                    <p class="small">
+                        <strong class="text-white">Status:</strong> <span class="badge bg-success">Active</span>
+                    </p>
+                </div>
+            </div>
+            <hr class="bg-secondary my-4">
+            <div class="row align-items-center">
+                <div class="col-md-6">
+                    <p class="small mb-0">&copy; 2026 Kegabutan Tim AiTi. Semua Hak Dilindungi.</p>
+                </div>
+                <div class="col-md-6 text-md-end">
+                    <p class="small mb-0">Dikembangkan dengan ❤️ untuk performa optimal</p>
+                </div>
+            </div>
+        </div>
+    </footer>
+</body>
+</html>
