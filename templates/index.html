@@ -28,8 +28,28 @@
                 </div>
                 <hr>
                 <div class="row">
+                    <div class="col-sm-4"><strong>Hostname:</strong></div>
+                    <div class="col-sm-8">{{ data.perangkat.hostname }}</div>
+                </div>
+                <hr>
+                <div class="row">
+                    <div class="col-sm-4"><strong>Serial Number:</strong></div>
+                    <div class="col-sm-8">{{ data.perangkat.serial_number }}</div>
+                </div>
+                <hr>
+                <div class="row">
+                    <div class="col-sm-4"><strong>MAC Address:</strong></div>
+                    <div class="col-sm-8"><code>{{ data.perangkat.mac_address }}</code></div>
+                </div>
+                <hr>
+                <div class="row">
                     <div class="col-sm-4"><strong>OS Platform:</strong></div>
                     <div class="col-sm-8">{{ data.perangkat.os }}</div>
+                </div>
+                <hr>
+                <div class="row">
+                    <div class="col-sm-4"><strong>OS Lengkap:</strong></div>
+                    <div class="col-sm-8 small"><code>{{ data.perangkat.os_lengkap }}</code></div>
                 </div>
                 <hr>
                 <div class="row">
@@ -45,6 +65,17 @@
                 <p><strong>Model CPU:</strong> {{ data.cpu.model }}</p>
                 <p><strong>Inti Kerja:</strong> {{ data.cpu.cores_fisik }} Cores Fisik / {{ data.cpu.total_thread }} Threads (Logis)</p>
                 <p><strong>Kecepatan Maksimal:</strong> {{ data.cpu.kecepatan }}</p>
+            </div>
+        </div>
+
+        <div class="card shadow-sm mb-4 border-0">
+            <div class="card-header bg-dark text-white fw-bold">🎮 Kartu Grafis / GPU</div>
+            <div class="card-body">
+                <ol class="mb-0">
+                    {% for gpu in data.gpu %}
+                    <li class="my-1 fw-bold">{{ gpu }}</li>
+                    {% endfor %}
+                </ol>
             </div>
         </div>
 
@@ -101,13 +132,54 @@
         </div>
 
         <div class="card shadow-sm mb-4 border-0">
-            <div class="card-header bg-dark text-white fw-bold">🎮 Kartu Grafis / GPU</div>
+            <div class="card-header bg-success text-white fw-bold">🔋 Kesehatan Baterai</div>
             <div class="card-body">
-                <ol class="mb-0">
-                    {% for gpu in data.gpu %}
-                    <li class="my-1 fw-bold">{{ gpu }}</li>
-                    {% endfor %}
-                </ol>
+                <div class="row mb-3">
+                    <div class="col-sm-4"><strong>Persentase Baterai:</strong></div>
+                    <div class="col-sm-8">{{ data.battery.percent }}</div>
+                </div>
+                <div class="progress style-progress" style="height: 25px;" class="mb-3">
+                    {% if data.battery.percent != 'N/A' %}
+                    <div class="progress-bar {% if data.battery.health == 'Sangat Baik' %}bg-success{% elif data.battery.health == 'Baik' %}bg-info{% elif data.battery.health == 'Cukup' %}bg-warning{% elif data.battery.health == 'Rendah' %}bg-warning{% else %}bg-danger{% endif %} fw-bold" role="progressbar" style="width: {{ data.battery.percent }};">{{ data.battery.percent }}</div>
+                    {% else %}
+                    <div class="progress-bar bg-secondary" role="progressbar" style="width: 100%;">N/A</div>
+                    {% endif %}
+                </div>
+                <hr>
+                <div class="row">
+                    <div class="col-sm-4"><strong>Status:</strong></div>
+                    <div class="col-sm-8">
+                        {% if data.battery.status == 'Sedang Charging' %}
+                        <span class="badge bg-success">{{ data.battery.status }}</span>
+                        {% elif data.battery.status == 'Battery Mode' %}
+                        <span class="badge bg-warning text-dark">{{ data.battery.status }}</span>
+                        {% else %}
+                        <span class="badge bg-secondary">{{ data.battery.status }}</span>
+                        {% endif %}
+                    </div>
+                </div>
+                <hr>
+                <div class="row">
+                    <div class="col-sm-4"><strong>Kondisi Kesehatan:</strong></div>
+                    <div class="col-sm-8">
+                        {% if data.battery.health == 'Sangat Baik' %}
+                        <span class="badge bg-success">{{ data.battery.health }}</span>
+                        {% elif data.battery.health == 'Baik' %}
+                        <span class="badge bg-info">{{ data.battery.health }}</span>
+                        {% elif data.battery.health == 'Cukup' %}
+                        <span class="badge bg-warning text-dark">{{ data.battery.health }}</span>
+                        {% elif data.battery.health == 'Rendah' %}
+                        <span class="badge bg-warning text-dark">{{ data.battery.health }}</span>
+                        {% else %}
+                        <span class="badge bg-danger">{{ data.battery.health }}</span>
+                        {% endif %}
+                    </div>
+                </div>
+                <hr>
+                <div class="row">
+                    <div class="col-sm-4"><strong>Waktu Tersisa:</strong></div>
+                    <div class="col-sm-8">{{ data.battery.time_left }}</div>
+                </div>
             </div>
         </div>
 

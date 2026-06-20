@@ -29,7 +29,11 @@ def export_csv():
     
     # Sistem & Perangkat
     cw.writerow(['Perangkat', 'Merk/Model', sanitize(hw_data['perangkat']['merk'])])
+    cw.writerow(['Perangkat', 'Hostname', sanitize(hw_data['perangkat']['hostname'])])
+    cw.writerow(['Perangkat', 'Serial Number', sanitize(hw_data['perangkat']['serial_number'])])
+    cw.writerow(['Perangkat', 'MAC Address', sanitize(hw_data['perangkat']['mac_address'])])
     cw.writerow(['Perangkat', 'OS Platform', sanitize(hw_data['perangkat']['os'])])
+    cw.writerow(['Perangkat', 'OS Lengkap', sanitize(hw_data['perangkat']['os_lengkap'])])
     cw.writerow(['Perangkat', 'Arsitektur', sanitize(hw_data['perangkat']['arsitektur'])])
     
     # CPU
@@ -53,6 +57,12 @@ def export_csv():
     # GPU
     for idx, gpu in enumerate(hw_data['gpu'], 1):
         cw.writerow(['GPU', f'Unit {idx}', sanitize(gpu)])
+    
+    # Battery
+    cw.writerow(['Baterai', 'Persentase', sanitize(hw_data['battery']['percent'])])
+    cw.writerow(['Baterai', 'Status', sanitize(hw_data['battery']['status'])])
+    cw.writerow(['Baterai', 'Kondisi Kesehatan', sanitize(hw_data['battery']['health'])])
+    cw.writerow(['Baterai', 'Waktu Tersisa', sanitize(hw_data['battery']['time_left'])])
 
     output = make_response(si.getvalue())
     output.headers["Content-Disposition"] = "attachment; filename=hardware_report_lengkap.csv"
@@ -78,8 +88,12 @@ def export_pdf():
     pdf.cell(200, 8, txt="[PERANGKAT & SISTEM OPERASI]", ln=True)
     pdf.set_font("Arial", size=11)
     pdf.cell(200, 6, txt=f" Merk / Model : {hw_data['perangkat']['merk']}", ln=True)
-    pdf.cell(200, 6, txt=f" OS Platform  : {hw_data['perangkat']['os']}", ln=True)
-    pdf.cell(200, 6, txt=f" Arsitektur   : {hw_data['perangkat']['arsitektur']}", ln=True)
+    pdf.cell(200, 6, txt=f" Hostname    : {hw_data['perangkat']['hostname']}", ln=True)
+    pdf.cell(200, 6, txt=f" Serial Num  : {hw_data['perangkat']['serial_number']}", ln=True)
+    pdf.cell(200, 6, txt=f" MAC Address : {hw_data['perangkat']['mac_address']}", ln=True)
+    pdf.cell(200, 6, txt=f" OS Platform : {hw_data['perangkat']['os']}", ln=True)
+    pdf.cell(200, 6, txt=f" OS Lengkap  : {hw_data['perangkat']['os_lengkap']}", ln=True)
+    pdf.cell(200, 6, txt=f" Arsitektur  : {hw_data['perangkat']['arsitektur']}", ln=True)
     pdf.ln(4)
     
     # Section 2
@@ -122,6 +136,15 @@ def export_pdf():
     pdf.set_font("Arial", size=11)
     for idx, gpu in enumerate(hw_data['gpu'], 1):
         pdf.cell(200, 6, txt=f" GPU {idx}        : {gpu}", ln=True)
+
+    # Section 6
+    pdf.set_font("Arial", style='B', size=12)
+    pdf.cell(200, 8, txt="[KESEHATAN BATERAI]", ln=True)
+    pdf.set_font("Arial", size=11)
+    pdf.cell(200, 6, txt=f" Persentase    : {hw_data['battery']['percent']}", ln=True)
+    pdf.cell(200, 6, txt=f" Status        : {hw_data['battery']['status']}", ln=True)
+    pdf.cell(200, 6, txt=f" Kondisi       : {hw_data['battery']['health']}", ln=True)
+    pdf.cell(200, 6, txt=f" Waktu Tersisa : {hw_data['battery']['time_left']}", ln=True)
 
     response = make_response(pdf.output(dest='S').encode('latin-1', errors='replace'))
     response.headers['Content-Type'] = 'application/pdf'

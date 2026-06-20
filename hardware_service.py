@@ -3,6 +3,8 @@ import psutil
 import cpuinfo
 import subprocess
 import json
+import socket
+import uuid
 
 class HardwareDetector:
     @staticmethod
@@ -83,6 +85,104 @@ class HardwareDetector:
             gpus.append(f"Gagal membaca informasi GPU: {e}")
         return gpus
 
+    def dapatkan_mac_address(self):
+        """Mendapatkan MAC address dari adapter jaringan utama"""
+        try:
+            mac_num = uuid.getnode()
+            mac_str = ':'.join(('%012x' % mac_num)[i:i+2] for i in range(0, 12, 2))
+            return mac_str.upper()
+        except Exception:
+            return "Tidak dapat mendeteksi MAC Address"
+
+    def dapatkan_serial_number(self):
+        """Mendapatkan serial number sistem"""
+        sistem_os = platform.system()
+        try:
+            if sistem_os == "Windows":
+                cmd = "wmic csproduct get serialnumber"
+                output = subprocess.check_output(cmd, shell=True).decode()
+                lines = [l.strip() for l in output.split('\n') if l.strip()]
+                return lines[-1] if len(lines) > 1 else "Tidak terdeteksi"
+            elif sistem_os == "Linux":
+                try:
+                    sn = subprocess.check_output("cat /sys/class/dmi/id/product_serial", shell=True).decode().strip()
+                    return sn if sn else "Tidak terdeteksi"
+                except Exception:
+                    return "Tidak terdeteksi"
+            elif sistem_os == "Darwin":
+                output = subprocess.check_output("system_profiler SPHardwareDataType | grep 'Serial Number'", shell=True).decode()
+                return output.split(':')[-1].strip() if ':' in output else "Tidak terdeteksi"
+        except Exception:
+            pass
+        return "Tidak dapat mendeteksi Serial Number"
+
+    def dapatkan_hostname(self):
+        """Mendapatkan hostname sistem"""
+        try:
+            return socket.gethostname()
+        except Exception:
+            return "Tidak dapat mendeteksi Hostname"
+
+    def dapatkan_os_lengkap(self):
+        """Mendapatkan informasi OS yang lengkap"""
+        try:
+            return platform.platform()
+        except Exception:
+            return "Tidak dapat mendeteksi OS"
+
+    def dapatkan_battery_health(self):
+        """Mendapatkan informasi kesehatan baterai"""
+        try:
+            battery = psutil.sensors_battery()
+            if battery is None:
+                return {
+                    "percent": "N/A",
+                    "status": "Tidak ada baterai",
+                    "time_left": "N/A"
+                }
+            else:
+                # Tentukan status baterai
+                if battery.power_plugged:
+                    status = "Sedang Charging"
+                else:
+                    status = "Battery Mode"
+                
+                # Tentukan kondisi kesehatan berdasarkan persentase
+                if battery.percent >= 80:
+                    health = "Sangat Baik"
+                elif battery.percent >= 60:
+                    health = "Baik"
+                elif battery.percent >= 40:
+                    health = "Cukup"
+                elif battery.percent >= 20:
+                    health = "Rendah"
+                else:
+                    health = "Kritis"
+                
+                # Hitung waktu tersisa
+                if battery.secsleft == -2:  # charging
+                    time_left = "Sedang charging"
+                elif battery.secsleft == -1:  # unknown
+                    time_left = "Tidak diketahui"
+                else:
+                    hours = battery.secsleft // 3600
+                    minutes = (battery.secsleft % 3600) // 60
+                    time_left = f"{hours}h {minutes}m"
+                
+                return {
+                    "percent": f"{battery.percent}%",
+                    "status": status,
+                    "health": health,
+                    "time_left": time_left
+                }
+        except Exception:
+            return {
+                "percent": "N/A",
+                "status": "Error",
+                "health": "Tidak dapat membaca",
+                "time_left": "N/A"
+            }
+
     def get_all_info(self):
         """Mengompilasi data dalam struktur dictionary bersih untuk Controller/Flask"""
         cpu_info = cpuinfo.get_cpu_info()
@@ -116,7 +216,11 @@ class HardwareDetector:
             "perangkat": {
                 "merk": self.dapatkan_merk_laptop(),
                 "os": f"{platform.system()} {platform.release()}",
-                "arsitektur": platform.machine()
+                "os_lengkap": self.dapatkan_os_lengkap(),
+                "arsitektur": platform.machine(),
+                "hostname": self.dapatkan_hostname(),
+                "mac_address": self.dapatkan_mac_address(),
+                "serial_number": self.dapatkan_serial_number()
             },
             "cpu": {
                 "model": cpu_info.get('brand_raw', 'Tidak terdeteksi'),
@@ -133,5 +237,6 @@ class HardwareDetector:
                 "fisik": self.dapatkan_tipe_disk(),
                 "logis": partisi_logis
             },
-            "gpu": self.dapatkan_info_gpu()
+            "gpu": self.dapatkan_info_gpu(),
+            "battery": self.dapatkan_battery_health()
         }
