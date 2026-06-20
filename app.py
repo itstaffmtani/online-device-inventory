@@ -63,6 +63,11 @@ def export_csv():
     cw.writerow(['RAM', 'Total RAM', sanitize(hw_data['ram']['total'])])
     cw.writerow(['RAM', 'Terpakai', f"{hw_data['ram']['used']} ({hw_data['ram']['percent']}%)"])
     
+    cw.writerow(['Baterai', 'Persentase', sanitize(hw_data['battery']['percent'])])
+    cw.writerow(['Baterai', 'Kesehatan', sanitize(hw_data['battery']['health'])])
+    cw.writerow(['Baterai', 'Status', sanitize(hw_data['battery']['status'])])
+    cw.writerow(['Baterai', 'Waktu Tersisa', sanitize(hw_data['battery']['time_left'])])
+    
     for idx, disk_f in enumerate(hw_data['disk']['fisik'], 1):
         cw.writerow(['Disk Fisik', f'Media {idx}', sanitize(disk_f)])
     for part in hw_data['disk']['logis']:
@@ -152,6 +157,15 @@ def export_pdf():
     pdf.set_font("Arial", size=10)
     for idx, gpu in enumerate(hw_data['gpu'], 1):
         pdf.cell(200, 5, txt=f" GPU {idx}           : {gpu}", ln=True)
+    pdf.ln(4)
+
+    pdf.set_font("Arial", style='B', size=12)
+    pdf.cell(200, 8, txt="[KESEHATAN BATERAI]", ln=True)
+    pdf.set_font("Arial", size=10)
+    pdf.cell(200, 5, txt=f" Persentase      : {hw_data['battery']['percent']}", ln=True)
+    pdf.cell(200, 5, txt=f" Kesehatan       : {hw_data['battery']['health']}", ln=True)
+    pdf.cell(200, 5, txt=f" Status          : {hw_data['battery']['status']}", ln=True)
+    pdf.cell(200, 5, txt=f" Waktu Tersisa   : {hw_data['battery']['time_left']}", ln=True)
 
     response = make_response(pdf.output(dest='S').encode('latin-1', errors='replace'))
     response.headers['Content-Type'] = 'application/pdf'

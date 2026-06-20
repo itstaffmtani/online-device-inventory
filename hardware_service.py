@@ -138,6 +138,7 @@ class HardwareDetector:
                 return {
                     "percent": "N/A",
                     "status": "Tidak ada baterai",
+                    "health": "Tidak ada baterai",
                     "time_left": "N/A"
                 }
             else:

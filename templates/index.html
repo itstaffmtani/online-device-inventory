@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Hardware Diagnostic Tool - Lazy Loading</title>
+    <title>Automatic Hardware Diagnostic and Management</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -146,8 +146,8 @@
                     <p class="text-sm text-slate-500">Spesifikasi hardware berhasil dideteksi secara lokal.</p>
                 </div>
                 <div class="flex gap-2">
-                    <a id="btn-csv" href="#" class="inline-flex items-center justify-center bg-emerald-600 hover:bg-emerald-700 text-white font-medium px-4 py-2 rounded-lg text-sm shadow-sm transition-all">Ekspor CSV</a>
-                    <a id="btn-pdf" href="#" class="inline-flex items-center justify-center bg-rose-600 hover:bg-rose-700 text-white font-medium px-4 py-2 rounded-lg text-sm shadow-sm transition-all">Ekspor PDF</a>
+                    <a id="btn-csv" href="#" target="_blank" class="inline-flex items-center justify-center bg-emerald-600 hover:bg-emerald-700 text-white font-medium px-4 py-2 rounded-lg text-sm shadow-sm transition-all">Ekspor CSV</a>
+                    <a id="btn-pdf" href="#" target="_blank" class="inline-flex items-center justify-center bg-rose-600 hover:bg-rose-700 text-white font-medium px-4 py-2 rounded-lg text-sm shadow-sm transition-all">Ekspor PDF</a>
                 </div>
             </div>
 
@@ -213,21 +213,33 @@
                 <button type="button" onclick="backToStep2()" class="border border-slate-200 hover:bg-slate-50 text-slate-700 font-semibold py-3 px-6 rounded-xl shadow-sm transition-all text-sm flex items-center gap-2">
                     ← Kembali dan Ubah Kondisi
                 </button>
+
+                <button id="btn-submit-final" type="button" onclick="submitToAppScript()" class="w-full sm:w-auto bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 px-8 rounded-xl shadow-md transition-all text-sm flex items-center justify-center gap-2 tracking-wide ml-auto">
+                    🚀 Kirim & Submit Data
+                </button>
             </div>
         </div>
 
     </div>
 
     <script>
-        let dataKoleksi = {};
+        const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbz52DDxaEfACkugm01-lzVI8UpAy0R1cijLjRGwftAbM2j8I2uZTokkYFF6IqAJtbAz/exec";
+
+        // Mencegah error 'undefined' dengan menginisialisasi objek kosong di awal
+        let dataKoleksi = {
+            hardware: {}
+        };
 
         function toStep2(e) {
             e.preventDefault();
-            dataKoleksi.nama = document.getElementById('nama').value;
-            dataKoleksi.jabatan = document.getElementById('jabatan').value;
-            dataKoleksi.perusahaan = document.getElementById('perusahaan').value;
-            dataKoleksi.penempatan = document.getElementById('penempatan').value;
-            dataKoleksi.status_laptop = document.querySelector('input[name="status_laptop"]:checked').value;
+            dataKoleksi.nama = document.getElementById('nama').value.trim();
+            dataKoleksi.jabatan = document.getElementById('jabatan').value.trim();
+            dataKoleksi.perusahaan = document.getElementById('perusahaan').value.trim();
+            dataKoleksi.penempatan = document.getElementById('penempatan').value.trim();
+            
+            // Nama disamakan dengan field di AppScript
+            const statusRadio = document.querySelector('input[name="status_laptop"]:checked');
+            dataKoleksi.status = statusRadio ? statusRadio.value : "-";
 
             document.getElementById('section-step1').classList.add('hidden');
             document.getElementById('section-step2').classList.remove('hidden');
@@ -261,81 +273,110 @@
             });
         }
 
-        // FUNGSI LAZY LOADING UTAMA (DIJALANKAN ASYNC SAAT SUBMIT STEP 2)
+        function getKelengkapan() {
+            if (document.getElementById("chk-tidak-ada") && document.getElementById("chk-tidak-ada").checked) return "Tidak ada";
+            
+            const items = [];
+            document.querySelectorAll('input[name="kelengkapan"]:checked').forEach(item => {
+                if (item.value !== "Tidak ada kelengkapan") {
+                    items.push(item.value);
+                }
+            });
+            return items.join(", ") || null;
+        }
+
+        // FUNGSI LAZY LOADING UTAMA (STEP 2 -> STEP 3)
         async function toStep3(e) {
             e.preventDefault();
 
-            // Kunci tombol dan hidupkan spinner animasinya
             const btnSubmit = document.getElementById('btn-submit-step2');
             const spinner = document.getElementById('loading-spinner');
             const btnText = document.getElementById('btn-text');
             
-            btnSubmit.disabled = true;
-            spinner.classList.remove('hidden');
-            btnText.innerText = "Mengecek Sistem Perangkat...";
+            if(btnSubmit) btnSubmit.disabled = true;
+            if(spinner) spinner.classList.remove('hidden');
+            if(btnText) btnText.innerText = "Mengecek Sistem...";
 
-            // Simpan data form step 2
-            dataKoleksi.kondisi = document.querySelector('input[name="kondisi_fisik"]:checked').value;
-            let listKelengkapan = [];
-            document.querySelectorAll('input[name="kelengkapan"]:checked').forEach(item => listKelengkapan.push(item.value));
-            dataKoleksi.kelengkapan = listKelengkapan.join(', ') || 'Tidak ada kelengkapan';
-            dataKoleksi.tahun_beli = document.getElementById('tahun_beli').value || 'N/A';
-            dataKoleksi.kerusakan = document.getElementById('kerusakan').value || 'Tidak ada';
+            // Simpan data kondisi fisik dengan nama yang disamakan
+            const kondisiRadio = document.querySelector('input[name="kondisi_fisik"]:checked');
+            dataKoleksi.kondisi_fisik = kondisiRadio ? kondisiRadio.value : "-";
+            dataKoleksi.kelengkapan = getKelengkapan() || 'Tidak ada';
+            dataKoleksi.tahun_beli = document.getElementById('tahun_beli').value.trim() || '-';
+            dataKoleksi.kerusakan = document.getElementById('kerusakan').value.trim() || 'Tidak ada';
 
             try {
-                // Panggil route API Flask secara asinkronus (Lazy Load)
                 const response = await fetch('/api/diagnostik');
+                if (!response.ok) throw new Error(`HTTP Error: ${response.status}`);
+                
                 const hw = await response.json();
+                
+                // Pastikan JSON tidak terpotong
+                if (!hw || !hw.perangkat) {
+                    throw new Error('Data hardware dari server tidak valid.');
+                }
 
-                // Suntikkan data hardware ke DOM HTML secara dinamis
-                document.getElementById('txt-merk').innerText = hw.perangkat.merk;
-                document.getElementById('txt-os').innerText = hw.perangkat.os;
-                document.getElementById('txt-arsitektur').innerText = hw.perangkat.arsitektur;
+                // SIMPAN KE GLOBAL AGAR BISA DIPAKAI SAAT SUBMIT FINAL
+                dataKoleksi.hardware = hw;
+
+                // Render Data ke Tampilan
+                document.getElementById('txt-merk').innerText = hw.perangkat.merk || "-";
+                document.getElementById('txt-os').innerText = hw.perangkat.os || "-";
+                document.getElementById('txt-arsitektur').innerText = hw.perangkat.arsitektur || "-";
                 
-                document.getElementById('txt-cpu-model').innerText = hw.cpu.model;
-                document.getElementById('txt-cpu-cores').innerText = `${hw.cpu.cores_fisik} Cores / ${hw.cpu.total_thread} Threads`;
-                document.getElementById('txt-cpu-speed').innerText = hw.cpu.kecepatan;
+                const cpu = hw.cpu || {};
+                document.getElementById('txt-cpu-model').innerText = cpu.model || "-";
+                document.getElementById('txt-cpu-cores').innerText = `${cpu.cores_fisik || 0} Cores / ${cpu.total_thread || 0} Threads`;
+                document.getElementById('txt-cpu-speed').innerText = cpu.kecepatan || "-";
                 
-                document.getElementById('txt-ram-total').innerText = hw.ram.total;
-                document.getElementById('txt-ram-used').innerText = hw.ram.used;
-                document.getElementById('bar-ram').style.width = `${hw.ram.percent}%`;
-                document.getElementById('bar-ram').innerText = `${hw.ram.percent}%`;
+                const ram = hw.ram || {};
+                document.getElementById('txt-ram-total').innerText = ram.total || "-";
+                document.getElementById('txt-ram-used').innerText = ram.used || "-";
+                document.getElementById('bar-ram').style.width = `${ram.percent || 0}%`;
+                document.getElementById('bar-ram').innerText = `${ram.percent || 0}%`;
 
                 // Render List Disk Fisik
                 const diskFisikContainer = document.getElementById('container-disk-fisik');
                 diskFisikContainer.innerHTML = '';
-                hw.disk.fisik.forEach(disk => {
-                    diskFisikContainer.innerHTML += `<span class="px-2.5 py-1 rounded bg-cyan-50 text-cyan-700 border border-cyan-100 font-medium text-xs">📁 ${disk}</span>`;
-                });
+                if(hw.disk && hw.disk.fisik) {
+                    hw.disk.fisik.forEach(disk => {
+                        diskFisikContainer.innerHTML += `<span class="px-2.5 py-1 rounded bg-cyan-50 text-cyan-700 border border-cyan-100 font-medium text-xs">📁 ${disk}</span>`;
+                    });
+                }
 
                 // Render Table Partisi Logis
                 const tableBody = document.getElementById('table-disk-logis');
                 tableBody.innerHTML = '';
-                hw.disk.logis.forEach(part => {
-                    tableBody.innerHTML += `
-                        <tr class="hover:bg-slate-50/50">
-                            <td class="px-3 py-2.5 font-bold text-slate-900">${part.drive}</td>
-                            <td class="px-3 py-2.5"><span class="px-1.5 py-0.5 bg-slate-100 rounded text-slate-600">${part.fstype}</span></td>
-                            <td class="px-3 py-2.5">${part.total}</td>
-                            <td class="px-3 py-2.5 text-emerald-600 font-medium">${part.free}</td>
-                            <td class="px-3 py-2.5">
-                                <div class="flex items-center gap-2">
-                                    <div class="w-24 bg-slate-100 rounded-full h-2 overflow-hidden shadow-inner"><div class="bg-cyan-500 h-full" style="width: ${part.percent};"></div></div>
-                                    <span class="font-bold text-slate-700">${part.percent}</span>
-                                </div>
-                            </td>
-                        </tr>`;
-                });
+                if(hw.disk && hw.disk.logis) {
+                    hw.disk.logis.forEach(part => {
+                        tableBody.innerHTML += `
+                            <tr class="hover:bg-slate-50/50">
+                                <td class="px-3 py-2.5 font-bold text-slate-900">${part.drive}</td>
+                                <td class="px-3 py-2.5"><span class="px-1.5 py-0.5 bg-slate-100 rounded text-slate-600">${part.fstype}</span></td>
+                                <td class="px-3 py-2.5">${part.total}</td>
+                                <td class="px-3 py-2.5 text-emerald-600 font-medium">${part.free}</td>
+                                <td class="px-3 py-2.5">
+                                    <div class="flex items-center gap-2">
+                                        <div class="w-24 bg-slate-100 rounded-full h-2 overflow-hidden shadow-inner"><div class="bg-cyan-500 h-full" style="width: ${part.percent};"></div></div>
+                                        <span class="font-bold text-slate-700">${part.percent}</span>
+                                    </div>
+                                </td>
+                            </tr>`;
+                    });
+                }
 
                 // Render List GPU
                 const gpuContainer = document.getElementById('container-gpu');
                 gpuContainer.innerHTML = '';
-                hw.gpu.forEach(gpu => {
-                    gpuContainer.innerHTML += `<div class="flex items-center gap-2 font-medium"><span class="text-indigo-500">⚡</span> ${gpu}</div>`;
-                });
+                if(hw.gpu) {
+                    hw.gpu.forEach(gpu => {
+                        gpuContainer.innerHTML += `<div class="flex items-center gap-2 font-medium"><span class="text-indigo-500">⚡</span> ${gpu}</div>`;
+                    });
+                }
 
-                // Konfigurasi Link tombol ekspor berkas file
-                const params = new URLSearchParams(dataKoleksi);
+                // Siapkan link tombol ekspor lokal
+                let exportParams = { ...dataKoleksi };
+                delete exportParams.hardware; // Cegah URL kepanjangan karena object hardware utuh dimasukkan ke link parameter
+                const params = new URLSearchParams(exportParams);
                 document.getElementById('btn-csv').href = `/export/csv?${params.toString()}`;
                 document.getElementById('btn-pdf').href = `/export/pdf?${params.toString()}`;
 
@@ -346,13 +387,100 @@
                 setActiveCircle('step3-circle');
 
             } catch (error) {
-                alert('Gagal mendeteksi hardware: ' + error);
+                console.error('Error detail:', error);
+                alert('Gagal mendeteksi hardware:\n' + error.message);
             } finally {
-                // Kembalikan status tombol normal
-                btnSubmit.disabled = false;
-                spinner.classList.add('hidden');
-                btnText.innerText = "Jalankan Diagnostik →";
+                if(btnSubmit) btnSubmit.disabled = false;
+                if(spinner) spinner.classList.add('hidden');
+                if(btnText) btnText.innerText = "Jalankan Diagnostik →";
                 window.scrollTo({ top: 0, behavior: 'smooth' });
+            }
+        }
+
+        // FUNGSI SUBMIT KE GOOGLE APPS SCRIPT
+        async function submitToAppScript() {
+            const btnSubmitFinal = document.getElementById('btn-submit-final');
+            if (!btnSubmitFinal) return;
+
+            // Extra proteksi: Pastikan hardware benar-benar ada sebelum diurai
+            if (!dataKoleksi.hardware || !dataKoleksi.hardware.perangkat) {
+                alert("Data hardware belum lengkap! Silakan kembali dan jalankan ulang diagnostik.");
+                return;
+            }
+
+            const originalText = btnSubmitFinal.innerHTML;
+            btnSubmitFinal.disabled = true;
+            btnSubmitFinal.innerHTML = `
+                <svg class="animate-spin h-5 w-5 text-white" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                <span>Mengirim ke Inventaris...</span>`;
+
+            // Ekstrak dengan object Fallback (Kebal error undefined)
+            const hw = dataKoleksi.hardware || {};
+            const perangkat = hw.perangkat || {};
+            const cpu = hw.cpu || {};
+            const ram = hw.ram || {};
+            const disk = hw.disk || {};
+
+            const payload = {
+                timestamp: new Date().toLocaleString("id-ID", { timeZone: "Asia/Jakarta" }),
+                nama: dataKoleksi.nama || "-",
+                jabatan: dataKoleksi.jabatan || "-",
+                perusahaan: dataKoleksi.perusahaan || "-",
+                penempatan: dataKoleksi.penempatan || "-",
+                status: dataKoleksi.status || "-",
+                
+                no_asset: "-", 
+                hostname: "-", 
+                mac: "-", 
+                serial: "-", 
+                
+                merk: perangkat.merk || "-",
+                model: "-", 
+                cpu: cpu.model || "-",
+                cpu_cores: cpu.cores_fisik || "-",
+                cpu_threads: cpu.total_thread || "-",
+                cpu_arch: perangkat.arsitektur || "-",
+                gpu: hw.gpu ? hw.gpu.join(", ") : "-",
+                
+                ram_gb: ram.total || "-",
+                ram_type: "-", 
+                ram_speed: cpu.kecepatan || "-", 
+                ram_usage_pct: ram.percent || "-",
+                ram_usage_gb: ram.used || "-",
+                
+                ssd_gb: (disk.fisik && disk.fisik.length > 0) ? disk.fisik.join(" | ") : "-", 
+                ssd_tipe: "-",
+                hdd_gb: "-",
+                
+                battery_pct: "-",
+                battery_wh: "-",
+                battery_wh_design: "-",
+                
+                os: perangkat.os || "-",
+                os_free_gb: (disk.logis && disk.logis.length > 0) ? disk.logis[0].free : "-",
+                os_total_gb: (disk.logis && disk.logis.length > 0) ? disk.logis[0].total : "-",
+                
+                kondisi_fisik: dataKoleksi.kondisi_fisik || "-",
+                kelengkapan: dataKoleksi.kelengkapan || "-",
+                tahun_beli: dataKoleksi.tahun_beli || "-",
+                kerusakan: dataKoleksi.kerusakan || "-"
+            };
+
+            try {
+                await fetch(APPS_SCRIPT_URL, {
+                    method: "POST",
+                    mode: "no-cors",
+                    headers: { "Content-Type": "text/plain" },
+                    body: JSON.stringify(payload),
+                });
+
+                alert("🎉 Data berhasil disubmit dan disimpan ke Google Sheets Inventaris!");
+                location.reload(); // Refresh form jika berhasil
+
+            } catch (err) {
+                alert("Gagal mengirim data ke Google Sheets. Periksa koneksi internet Anda.");
+                btnSubmitFinal.disabled = false;
+                btnSubmitFinal.innerHTML = originalText;
             }
         }
 
