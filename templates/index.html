@@ -244,6 +244,14 @@
             window.scrollTo({ top: 0, behavior: 'smooth' });
         }
 
+        function backToStep2() {
+            document.getElementById('section-step3').classList.add('hidden');
+            document.getElementById('section-step2').classList.remove('hidden');
+            document.getElementById('stepper-line').style.width = '50%';
+            setInactiveCircle('step3-circle');
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+
         function toggleTidakAda(chk) {
             document.querySelectorAll('input[name="kelengkapan"]').forEach(item => {
                 if(item !== chk) {
