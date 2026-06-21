@@ -57,6 +57,13 @@
                         <input type="text" id="penempatan" required placeholder="Kota / cabang" class="w-full px-4 py-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all">
                     </div>
                 </div>
+                <div class="space-y-2">
+                    <label for="no_asset" class="text-xs font-bold uppercase tracking-wider text-slate-500 flex items-center gap-1.5">
+                        <span>🏷️</span> Nomor Asset Inventaris <span class="text-slate-400 font-normal">(Opsional)</span>
+                    </label>
+                    <input type="text" id="no_asset" name="no_asset" placeholder="Contoh: AST-2026-001 atau isi jika ada"
+                        class="w-full px-4 py-3 rounded-xl border border-slate-200 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 transition outline-none text-sm font-medium placeholder:text-slate-400">
+                </div>
                 <div>
                     <label class="block text-sm font-semibold text-slate-700 mb-2">Status laptop <span class="text-rose-500">*</span></label>
                     <div class="grid grid-cols-2 gap-4">
@@ -155,9 +162,12 @@
                 <div class="bg-white rounded-xl shadow-sm border border-slate-200/80 overflow-hidden">
                     <div class="bg-indigo-600 px-5 py-4 text-white font-semibold">💻 Perangkat & OS</div>
                     <div class="p-5 space-y-3 text-sm">
+                        <div class="flex justify-between border-b pb-2"><span class="text-slate-500">Hostname:</span><span id="txt-hostname" class="font-semibold text-slate-900"></span></div>
+                        <div class="flex justify-between border-b pb-2"><span class="text-slate-500">MAC Address:</span><span id="txt-mac" class="font-mono font-bold text-slate-700"></span></div>
+                        <div class="flex justify-between border-b pb-2"><span class="text-slate-500">Serial Number:</span><span id="txt-serial" class="font-mono font-bold text-slate-700"></span></div>
+                        
                         <div class="flex justify-between border-b pb-2"><span class="text-slate-500">Merk / Model:</span><span id="txt-merk" class="font-semibold text-slate-900"></span></div>
-                        <div class="flex justify-between border-b pb-2"><span class="text-slate-500">OS Platform:</span><span id="txt-os" class="font-semibold text-slate-900"></span></div>
-                        <div class="flex justify-between"><span class="text-slate-500">Arsitektur:</span><span id="txt-arsitektur" class="font-semibold text-slate-900"></span></div>
+                        <div class="flex justify-between"><span class="text-slate-500">OS Platform:</span><span id="txt-os" class="font-semibold text-slate-900"></span></div>
                     </div>
                 </div>
                 <div class="bg-white rounded-xl shadow-sm border border-slate-200/80 overflow-hidden">
@@ -209,6 +219,15 @@
                 <div id="container-gpu" class="p-5 text-sm space-y-2"></div>
             </div>
 
+           <div class="bg-white rounded-xl shadow-sm border border-slate-200/80 overflow-hidden">
+                <div class="bg-emerald-600 px-5 py-4 text-white font-semibold">🔋 Status Baterai Sistem</div>
+                <div class="p-5 grid grid-cols-1 sm:grid-cols-3 gap-4 items-center text-sm">
+                    <div><span class="text-slate-500 block">Daya Tersisa (%)</span><span id="txt-bat-pct" class="text-xl font-bold text-slate-900">-</span></div>
+                    <div><span class="text-slate-500 block">Kapasitas Full Saat Ini</span><span id="txt-bat-curr" class="text-lg font-semibold text-slate-700">-</span></div>
+                    <div><span class="text-slate-500 block">Kapasitas Desain Pabrik</span><span id="txt-bat-design" class="text-lg font-semibold text-slate-400 italic">-</span></div>
+                </div>
+            </div>
+
             <div class="bg-white rounded-2xl shadow-sm border border-slate-200/80 p-4 flex justify-start">
                 <button type="button" onclick="backToStep2()" class="border border-slate-200 hover:bg-slate-50 text-slate-700 font-semibold py-3 px-6 rounded-xl shadow-sm transition-all text-sm flex items-center gap-2">
                     ← Kembali dan Ubah Kondisi
@@ -236,6 +255,7 @@
             dataKoleksi.jabatan = document.getElementById('jabatan').value.trim();
             dataKoleksi.perusahaan = document.getElementById('perusahaan').value.trim();
             dataKoleksi.penempatan = document.getElementById('penempatan').value.trim();
+            dataKoleksi.no_asset = document.getElementById('no_asset').value.trim() || "-";
             
             // Nama disamakan dengan field di AppScript
             const statusRadio = document.querySelector('input[name="status_laptop"]:checked');
@@ -319,9 +339,11 @@
                 dataKoleksi.hardware = hw;
 
                 // Render Data ke Tampilan
+                document.getElementById('txt-hostname').innerText = hw.perangkat.hostname || "-";
+                document.getElementById('txt-mac').innerText = hw.perangkat.mac_address || "-";
+                document.getElementById('txt-serial').innerText = hw.perangkat.serial_number || "-";
                 document.getElementById('txt-merk').innerText = hw.perangkat.merk || "-";
                 document.getElementById('txt-os').innerText = hw.perangkat.os || "-";
-                document.getElementById('txt-arsitektur').innerText = hw.perangkat.arsitektur || "-";
                 
                 const cpu = hw.cpu || {};
                 document.getElementById('txt-cpu-model').innerText = cpu.model || "-";
@@ -333,6 +355,12 @@
                 document.getElementById('txt-ram-used').innerText = ram.used || "-";
                 document.getElementById('bar-ram').style.width = `${ram.percent || 0}%`;
                 document.getElementById('bar-ram').innerText = `${ram.percent || 0}%`;
+
+                // Render Data Baterai ke UI
+                const bat = hw.baterai || {};
+                document.getElementById('txt-bat-pct').innerText = bat.percent || "-";
+                document.getElementById('txt-bat-curr').innerText = bat.wh_current || "-";
+                document.getElementById('txt-bat-design').innerText = bat.wh_design || "-";
 
                 // Render List Disk Fisik
                 const diskFisikContainer = document.getElementById('container-disk-fisik');
@@ -375,7 +403,6 @@
 
                 // Siapkan link tombol ekspor lokal
                 let exportParams = { ...dataKoleksi };
-                delete exportParams.hardware; // Cegah URL kepanjangan karena object hardware utuh dimasukkan ke link parameter
                 const params = new URLSearchParams(exportParams);
                 document.getElementById('btn-csv').href = `/export/csv?${params.toString()}`;
                 document.getElementById('btn-pdf').href = `/export/pdf?${params.toString()}`;
@@ -420,6 +447,7 @@
             const cpu = hw.cpu || {};
             const ram = hw.ram || {};
             const disk = hw.disk || {};
+            const baterai = hw.baterai || {};
 
             const payload = {
                 timestamp: new Date().toLocaleString("id-ID", { timeZone: "Asia/Jakarta" }),
@@ -428,11 +456,12 @@
                 perusahaan: dataKoleksi.perusahaan || "-",
                 penempatan: dataKoleksi.penempatan || "-",
                 status: dataKoleksi.status || "-",
+                no_asset: dataKoleksi.no_asset || document.getElementById('no_asset').value.trim() || "-",
                 
                 no_asset: "-", 
-                hostname: "-", 
-                mac: "-", 
-                serial: "-", 
+                hostname: perangkat.hostname || "-", 
+                mac: perangkat.mac_address || "-", 
+                serial: perangkat.serial_number || "-", 
                 
                 merk: perangkat.merk || "-",
                 model: "-", 
@@ -452,9 +481,9 @@
                 ssd_tipe: "-",
                 hdd_gb: "-",
                 
-                battery_pct: "-",
-                battery_wh: "-",
-                battery_wh_design: "-",
+                battery_pct: baterai.percent || "-",
+                battery_wh: baterai.wh_current || "-",
+                battery_wh_design: baterai.wh_design || "-",
                 
                 os: perangkat.os || "-",
                 os_free_gb: (disk.logis && disk.logis.length > 0) ? disk.logis[0].free : "-",
