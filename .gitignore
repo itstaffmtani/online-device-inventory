@@ -1,0 +1,29 @@
+# Python
+venv/
+__pycache__/
+*.pyc
+
+# Database & data (abaikan isi data/ KECUALI seed CPU yang di-commit)
+data/*
+!data/cpu_seed.csv
+*.db
+*.sqlite
+*.sqlite3
+
+# Environment & secrets
+.env
+*.env
+
+# Export sementara
+*.xlsx
+*.csv
+*.pdf
+
+# Editor / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Pengecualian eksplisit: seed CPU WAJIB ikut ter-commit (menang atas *.csv di atas)
+!data/cpu_seed.csv

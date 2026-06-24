@@ -1,0 +1,175 @@
+// ============================================================================
+// online-device-inventory — Skema Database (SQLite)
+// Format: DBML (dbdiagram.io / dbml.org). Render di https://dbdiagram.io
+// ----------------------------------------------------------------------------
+// Prinsip:
+//  - LAPTOP adalah entitas utama, dikunci oleh Serial Number (paling andal).
+//  - PEMEGANG (nama/jabatan/kelompok) menempel ke SUBMISSION, bukan ke laptop,
+//    sehingga pergantian tangan terekam sebagai riwayat.
+//  - Setiap pengisian form = 1 baris submissions (riwayat). Dashboard
+//    menampilkan submission TERBARU per device.
+//  - Spesifikasi & skor disimpan per-submission (snapshot waktu itu),
+//    karena spek bisa berubah (mis. upgrade RAM) dan skor mengikutinya.
+// ============================================================================
+
+Enum work_group {
+  field           [note: 'Lapangan & Mobilitas']
+  admin           [note: 'Administrasi & Operasional']
+  finance         [note: 'Finance / Accounting']
+  data_processing [note: 'Analis / pengguna Excel berat / data']
+  management      [note: 'Manager / GM']
+  it              [note: 'IT & Development']
+  other           [note: 'Lainnya — diisi bebas oleh user di work_group_other']
+}
+
+Enum laptop_status {
+  office_inventory
+  personal
+}
+
+Enum physical_condition {
+  good
+  fair
+  poor
+}
+
+Enum kelayakan_status {
+  eligible [note: 'Skor tinggi, sesuai beban kerja']
+  upgrade  [note: 'Masih dipakai tapi perlu tambah RAM / ganti SSD / dll']
+  replace  [note: 'Sudah tidak layak untuk perannya']
+}
+
+Enum os_family {
+  windows
+  macos
+  linux
+}
+
+Enum submission_source {
+  windows_script
+  mac_script
+  linux_script
+  manual          [note: 'Diketik manual (spek tidak terdeteksi / HP-tablet)']
+}
+
+// ----------------------------------------------------------------------------
+// DEVICES — satu baris per laptop fisik. Identitas hardware yang stabil.
+// ----------------------------------------------------------------------------
+Table devices {
+  id              integer      [pk, increment]
+  serial_number   varchar      [unique, note: 'Kunci utama identitas laptop. NULL jika OEM kosong/tak terbaca']
+  asset_no        varchar      [note: 'No. Asset IT (label manusia, bisa kosong/belum distiker)']
+  primary_mac     varchar      [note: 'MAC address — identitas cadangan bila serial kosong']
+  brand           varchar
+  model           varchar
+  os_family       os_family
+  first_seen_at   timestamp    [note: 'Pertama kali terdata']
+  last_seen_at    timestamp    [note: 'Submission terakhir (cache untuk sortir dashboard)']
+  admin_notes     text         [note: 'Catatan internal tim IT (mis. sudah dijadwalkan ganti)']
+
+  Note: 'Pencocokan device saat submission masuk: cari by serial_number; bila kosong fallback ke asset_no lalu primary_mac; bila tak ketemu, buat device baru.'
+}
+
+// ----------------------------------------------------------------------------
+// SUBMISSIONS — riwayat. Tiap pengisian form jadi 1 baris.
+// Berisi: pemegang saat itu + kondisi + SNAPSHOT spek + SNAPSHOT skor.
+// ----------------------------------------------------------------------------
+Table submissions {
+  id                integer            [pk, increment]
+  device_id         integer            [ref: > devices.id, not null]
+  submitted_at      timestamp          [not null]
+  source            submission_source
+
+  // — Pemegang (menempel ke submission, BUKAN ke device) —
+  holder_name       varchar            [not null]
+  holder_position   varchar            [note: 'Teks bebas jabatan']
+  holder_company    varchar
+  holder_location   varchar            [note: 'Kota / cabang']
+  work_group        work_group         [not null, note: 'Dipilih user via dropdown; admin bisa koreksi']
+  work_group_other  varchar            [note: 'Teks bebas bila work_group = other']
+  laptop_status     laptop_status
+
+  // — Identitas aset (disalin ke device saat pencocokan) —
+  hostname          varchar
+  mac_address       varchar
+  serial_number     varchar
+  asset_no          varchar
+
+  // — Spesifikasi: CPU —
+  cpu_model         varchar
+  cpu_cores         integer
+  cpu_threads       integer
+  cpu_arch          varchar
+  cpu_speed_mhz     integer
+  cpu_passmark      integer            [note: 'Skor PassMark hasil lookup cpu_benchmarks (cache)']
+
+  // — Spesifikasi: GPU —
+  gpu               text               [note: 'Bisa lebih dari satu, dipisah koma']
+
+  // — Spesifikasi: RAM —
+  ram_gb            real
+  ram_type          varchar            [note: 'DDR4/DDR5/LPDDR5 — bila terdeteksi']
+  ram_speed_mhz     integer
+  ram_usage_pct     real               [note: 'SNAPSHOT beban saat script jalan']
+  ram_usage_gb      real               [note: 'SNAPSHOT beban saat script jalan']
+
+  // — Spesifikasi: Storage —
+  ssd_gb            real
+  ssd_type          varchar            [note: 'NVMe / SATA / M.2']
+  hdd_gb            real
+  disk_raw          text               [note: 'JSON daftar disk fisik mentah (untuk audit)']
+  os_total_gb       real
+  os_free_gb        real
+
+  // — Spesifikasi: Baterai —
+  battery_pct        real
+  battery_wh_full    real              [note: 'Kapasitas penuh saat ini']
+  battery_wh_design  real              [note: 'Kapasitas desain pabrik']
+  battery_health_pct real              [note: 'Dihitung: wh_full / wh_design * 100']
+
+  // — Spesifikasi: OS —
+  os_name           varchar
+
+  // — Kondisi & kelengkapan (isian manusia) —
+  physical_condition physical_condition
+  accessories       text               [note: 'CSV: Charger (Ori), Tas, Mouse, ... atau "Tidak ada"']
+  purchase_year     integer            [note: 'Tahun pembelian']
+  issues            text               [note: 'Keluhan/kerusakan, "Tidak ada" bila normal']
+
+  // — Hasil penilaian kelayakan (snapshot, lihat docs/scoring.md) —
+  score_spec        integer            [note: '0-100 kualitas hardware vs peran']
+  score_load        integer            [note: '0-100 ketahanan terhadap beban kerja']
+  score_total       integer            [note: '0-100 skor headline']
+  status            kelayakan_status
+  status_reasons    text               [note: 'JSON daftar alasan (mis. ["RAM 8GB kurang untuk Keuangan","Ganti ke SSD"])']
+  eol_year          integer            [note: 'Estimasi tahun pensiun']
+
+  indexes {
+    (device_id, submitted_at) [note: 'Ambil submission terbaru per device']
+  }
+
+  Note: 'Dashboard "kondisi terbaru" = submission dengan submitted_at terbesar per device_id.'
+}
+
+// ----------------------------------------------------------------------------
+// CPU_BENCHMARKS — tabel referensi OFFLINE (di-seed sekali).
+// "AnTuTu untuk laptop": petakan model CPU -> skor PassMark.
+// Sumber seed: https://www.cpubenchmark.net (verifikasi angka saat mengisi).
+// ----------------------------------------------------------------------------
+Table cpu_benchmarks {
+  id              integer  [pk, increment]
+  cpu_key         varchar  [unique, note: 'Model dinormalisasi lowercase tanpa spasi ganda, mis. "amd ryzen 5 7530u"']
+  cpu_label       varchar  [note: 'Nama tampilan asli']
+  passmark_multi  integer  [note: 'Skor PassMark multi-thread (CPU Mark)']
+  passmark_single integer  [note: 'Single-thread (opsional)']
+  cores           integer
+  release_year    integer
+  source          varchar  [note: 'Asal data + tanggal ambil']
+
+  Note: 'Pencocokan CPU terdeteksi -> cpu_key via normalisasi + fuzzy. Bila tak ketemu, scoring pakai fallback (lihat scoring.md).'
+}
+
+// Catatan: AUTENTIKASI ADMIN tidak pakai tabel — cukup 1 password bersama
+// dari environment variable (ADMIN_PASSWORD) + Flask session. Lihat architecture.md.
+// AMBANG/THRESHOLD per kelompok TIDAK disimpan di DB — ada di kode (config),
+// didokumentasikan di scoring.md agar mudah dikalibrasi.

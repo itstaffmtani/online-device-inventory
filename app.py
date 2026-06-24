@@ -1,133 +1,58 @@
-from flask import Flask, render_template, make_response
-from hardware_service import HardwareDetector
-import csv
-import io
-from fpdf import FPDF
+# app.py — entry point Flask (app-factory).
+#
+# Tanggung jawab Sesi 1:
+#   - create_app() factory: muat config, init DB, register blueprint.
+#   - init_db() saat start agar file SQLite + tabel siap.
+#   - Register public_bp (form/submit/unduh) & admin_bp (dashboard/export).
+#
+# Catatan: endpoint lama /api/diagnostik dan semua kode Google Apps Script /
+# ekspor PDF-CSV berbasis spek server SUDAH DIHAPUS. Deteksi spek kini dilakukan
+# collector di laptop karyawan (lihat docs/architecture.md).
 
-app = Flask(__name__)
-detector = HardwareDetector()
+from flask import Flask
+from werkzeug.middleware.proxy_fix import ProxyFix
 
-@app.route('/')
-def index():
-    hw_data = detector.get_all_info()
-    return render_template('index.html', data=hw_data)
+import db
+from config import config
+from routes_admin import admin_bp
+from routes_public import public_bp
 
-@app.route('/export/csv')
-def export_csv():
-    hw_data = detector.get_all_info()
-    
-    # OWASP CSV Injection Mitigation
-    def sanitize(val):
-        val_str = str(val)
-        if val_str.startswith(('=', '+', '-', '@')):
-            return "'" + val_str
-        return val_str
 
-    si = io.StringIO()
-    cw = csv.writer(si)
-    cw.writerow(['Kategori', 'Komponen/Parameter', 'Detail'])
-    
-    # Sistem & Perangkat
-    cw.writerow(['Perangkat', 'Merk/Model', sanitize(hw_data['perangkat']['merk'])])
-    cw.writerow(['Perangkat', 'OS Platform', sanitize(hw_data['perangkat']['os'])])
-    cw.writerow(['Perangkat', 'Arsitektur', sanitize(hw_data['perangkat']['arsitektur'])])
-    
-    # CPU
-    cw.writerow(['CPU', 'Model', sanitize(hw_data['cpu']['model'])])
-    cw.writerow(['CPU', 'Core Fisik', sanitize(hw_data['cpu']['cores_fisik'])])
-    cw.writerow(['CPU', 'Total Thread', sanitize(hw_data['cpu']['total_thread'])])
-    cw.writerow(['CPU', 'Kecepatan', sanitize(hw_data['cpu']['kecepatan'])])
-    
-    # RAM
-    cw.writerow(['RAM', 'Total RAM', sanitize(hw_data['ram']['total'])])
-    cw.writerow(['RAM', 'Terpakai', f"{hw_data['ram']['used']} ({hw_data['ram']['percent']}%)"])
-    
-    # Disk Fisik
-    for idx, disk_f in enumerate(hw_data['disk']['fisik'], 1):
-        cw.writerow(['Disk Fisik', f'Media {idx}', sanitize(disk_f)])
-        
-    # Partisi Logis
-    for part in hw_data['disk']['logis']:
-        cw.writerow(['Partisi Logis', f"Drive {part['drive']}", f"Total: {part['total']} | Sisa: {part['free']} ({part['percent']} Terpakai)"])
-        
-    # GPU
-    for idx, gpu in enumerate(hw_data['gpu'], 1):
-        cw.writerow(['GPU', f'Unit {idx}', sanitize(gpu)])
+def create_app():
+    """Buat & konfigurasi instance Flask."""
+    app = Flask(__name__)
+    app.config["SECRET_KEY"] = config.SECRET_KEY
+    app.config["SERVER_BASE_URL"] = config.SERVER_BASE_URL
+    app.config["SUBMIT_TOKEN"] = config.SUBMIT_TOKEN
+    app.config["ADMIN_PASSWORD"] = config.ADMIN_PASSWORD
+    app.config["DB_PATH"] = config.DB_PATH
 
-    output = make_response(si.getvalue())
-    output.headers["Content-Disposition"] = "attachment; filename=hardware_report_lengkap.csv"
-    output.headers["Content-type"] = "text/csv; charset=utf-8"
-    return output
+    # Daftarkan teardown koneksi DB per-request + buat tabel bila belum ada.
+    db.init_app(app)
+    db.init_db()
 
-@app.route('/export/pdf')
-def export_pdf():
-    hw_data = detector.get_all_info()
-    
-    pdf = FPDF()
-    pdf.add_page()
-    pdf.set_font("Arial", size=12)
-    
-    # Header
-    pdf.set_font("Arial", style='B', size=16)
-    pdf.cell(200, 10, txt="LAPORAN DIAGNOSTIK SPESIFIKASI SISTEM", ln=True, align='C')
-    pdf.ln(10)
-    
-    pdf.set_font("Arial", size=12)
-    # Section 1
-    pdf.set_font("Arial", style='B', size=12)
-    pdf.cell(200, 8, txt="[PERANGKAT & SISTEM OPERASI]", ln=True)
-    pdf.set_font("Arial", size=11)
-    pdf.cell(200, 6, txt=f" Merk / Model : {hw_data['perangkat']['merk']}", ln=True)
-    pdf.cell(200, 6, txt=f" OS Platform  : {hw_data['perangkat']['os']}", ln=True)
-    pdf.cell(200, 6, txt=f" Arsitektur   : {hw_data['perangkat']['arsitektur']}", ln=True)
-    pdf.ln(4)
-    
-    # Section 2
-    pdf.set_font("Arial", style='B', size=12)
-    pdf.cell(200, 8, txt="[PROSESOR / CPU]", ln=True)
-    pdf.set_font("Arial", size=11)
-    pdf.cell(200, 6, txt=f" Model CPU    : {hw_data['cpu']['model']}", ln=True)
-    pdf.cell(200, 6, txt=f" Core Fisik   : {hw_data['cpu']['cores_fisik']} Cores", ln=True)
-    pdf.cell(200, 6, txt=f" Total Thread : {hw_data['cpu']['total_thread']} Threads", ln=True)
-    pdf.cell(200, 6, txt=f" Kecepatan    : {hw_data['cpu']['kecepatan']}", ln=True)
-    pdf.ln(4)
+    # Seed tabel cpu_benchmarks (idempoten) agar scoring punya acuan PassMark.
+    # Defensif: bila modul/seed belum lengkap, scoring tetap jalan via fallback CSV.
+    try:
+        from scoring import seed_cpu_benchmarks
+        seed_cpu_benchmarks()
+    except Exception as exc:  # noqa: BLE001
+        app.logger.warning("Lewati seed cpu_benchmarks: %s", exc)
 
-    # Section 3
-    pdf.set_font("Arial", style='B', size=12)
-    pdf.cell(200, 8, txt="[MEMORI / RAM]", ln=True)
-    pdf.set_font("Arial", size=11)
-    pdf.cell(200, 6, txt=f" Total RAM    : {hw_data['ram']['total']}", ln=True)
-    pdf.cell(200, 6, txt=f" RAM Terpakai : {hw_data['ram']['used']} ({hw_data['ram']['percent']}%)", ln=True)
-    pdf.ln(4)
+    # Register blueprint.
+    app.register_blueprint(public_bp)
+    app.register_blueprint(admin_bp)
 
-    # Section 4
-    pdf.set_font("Arial", style='B', size=12)
-    pdf.cell(200, 8, txt="[PENYIMPANAN / DISK]", ln=True)
-    pdf.set_font("Arial", style='I', size=11)
-    pdf.cell(200, 6, txt=" Tipe Media Penyimpanan (Fisik):", ln=True)
-    pdf.set_font("Arial", size=11)
-    for disk_f in hw_data['disk']['fisik']:
-        pdf.cell(200, 6, txt=f"   - {disk_f}", ln=True)
-        
-    pdf.set_font("Arial", style='I', size=11)
-    pdf.cell(200, 6, txt=" Status Partisi (Logis):", ln=True)
-    pdf.set_font("Arial", size=11)
-    for part in hw_data['disk']['logis']:
-        pdf.cell(200, 6, txt=f"   - Drive {part['drive']} ({part['fstype']}) -> Total: {part['total']} | Sisa: {part['free']}", ln=True)
-    pdf.ln(4)
+    # Hormati header dari reverse proxy (nginx): proto HTTPS + sub-path mount.
+    # X-Forwarded-Prefix membuat url_for() & redirect ikut prefix (mis.
+    # /laptop-inventory) saat app dipasang di sub-path. Tanpa proxy → no-op.
+    app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_prefix=1)
 
-    # Section 5
-    pdf.set_font("Arial", style='B', size=12)
-    pdf.cell(200, 8, txt="[KARTU GRAFIS / GPU]", ln=True)
-    pdf.set_font("Arial", size=11)
-    for idx, gpu in enumerate(hw_data['gpu'], 1):
-        pdf.cell(200, 6, txt=f" GPU {idx}        : {gpu}", ln=True)
+    return app
 
-    response = make_response(pdf.output(dest='S').encode('latin-1', errors='replace'))
-    response.headers['Content-Type'] = 'application/pdf'
-    response.headers['Content-Disposition'] = 'attachment; filename=hardware_report_lengkap.pdf'
-    return response
 
-if __name__ == '__main__':
-    # Pastikan port diganti jika port 5000 kamu masih bentrok
-    app.run(host='127.0.0.1', port=8080, debug=False)
+app = create_app()
+
+
+if __name__ == "__main__":
+    app.run(host="127.0.0.1", port=8080, debug=True)

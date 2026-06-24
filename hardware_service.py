@@ -3,6 +3,8 @@ import psutil
 import cpuinfo
 import subprocess
 import json
+import uuid
+import socket
 
 class HardwareDetector:
     @staticmethod
@@ -12,12 +14,42 @@ class HardwareDetector:
             if bytes < factor:
                 return f"{bytes:.2f} {unit}{suffix}"
             bytes /= factor
+            
+    def _dapatkan_hostname(self):
+        try:
+            return socket.gethostname()
+        except:
+            return "Tidak diketahui"
+            
+    def _dapatkan_mac_address(self):
+        try:
+            mac = uuid.getnode()
+            return ':'.join(['{:02x}'.format((mac >> elements) & 0xff) for elements in range(0,2*6,2)][::-1]).upper()
+        except:
+            return "Tidak terdeteksi"
+
+    def _dapatkan_serial_number(self):
+        sistem_os = platform.system()
+        try:
+            if sistem_os == "Windows":
+                cmd = "wmic bios get serialnumber"
+                output = subprocess.check_output(cmd, shell=True).decode()
+                baris = [l.strip() for l in output.split('\n') if l.strip()]
+                sn = baris[-1] if len(baris) > 1 else ""
+                return sn if sn.lower() not in ["to be filled by o.e.m.", "default string", "0", "n/a", "none"] else "Kosong/OEM"
+            elif sistem_os == "Linux":
+                return subprocess.check_output("cat /sys/class/dmi/id/product_serial", shell=True).decode().strip()
+            elif sistem_os == "Darwin":
+                output = subprocess.check_output("system_profiler SPHardwareDataType | grep 'Serial Number'", shell=True).decode().strip()
+                return output.split(":")[-1].strip()
+        except Exception:
+            pass
+        return "Tidak dapat membaca S/N"
 
     def dapatkan_merk_laptop(self):
         sistem_os = platform.system()
         try:
             if sistem_os == "Windows":
-                # Keamanan OWASP: Menggunakan list argumen untuk subprocess mengurangi risiko shell injection jika dikembangkan
                 cmd = "wmic computersystem get manufacturer,model"
                 output = subprocess.check_output(cmd, shell=True).decode()
                 baris = [l.strip() for l in output.split('\n') if l.strip()]
@@ -37,7 +69,7 @@ class HardwareDetector:
         info_disk = []
         try:
             if sistem_os == "Windows":
-                cmd = 'powershell "Get-PhysicalDisk | Select-Object Model, MediaType | ConvertTo-Json"'
+                cmd = 'powershell "Get-PhysicalDisk | Select-Object Model, MediaType, BusType | ConvertTo-Json"'
                 output = subprocess.check_output(cmd, shell=True).decode()
                 try:
                     disks = json.loads(output)
@@ -45,7 +77,14 @@ class HardwareDetector:
                     for d in disks:
                         model = d.get('Model', 'Unknown').strip()
                         tipe = d.get('MediaType', 'Unknown')
-                        info_disk.append(f"{model} ({tipe})")
+                        bus = d.get('BusType', '')
+                        
+                        if tipe.upper() == "SSD" and bus.upper() == "NVME":
+                            tipe = "SSD (NVMe)"
+                        elif tipe.upper() == "SSD":
+                            tipe = "SSD (SATA/M.2)"
+                            
+                        info_disk.append(f"{model} [{tipe}]")
                 except json.JSONDecodeError:
                     info_disk.append("Format disk Windows tidak terbaca.")
             elif sistem_os == "Linux":
@@ -57,13 +96,13 @@ class HardwareDetector:
                         nama_device = parts[0]
                         rota = parts[-1]
                         model = " ".join(parts[1:-1])
-                        tipe = "HDD" if rota == "1" else "SSD / NVMe"
+                        tipe = "HDD" if rota == "1" else "SSD"
                         if "nvme" in nama_device.lower():
-                            tipe = "SSD NVMe"
+                            tipe = "SSD (NVMe)"
                         info_disk.append(f"/dev/{nama_device} - {model} [{tipe}]")
         except Exception:
             pass
-        return info_disk if info_disk else ["Informasi tipe fisik disk tidak tersedia"]
+        return info_disk if info_disk else ["Informasi fisik disk tidak tersedia"]
 
     def dapatkan_info_gpu(self):
         sistem_os = platform.system()
@@ -71,7 +110,10 @@ class HardwareDetector:
         try:
             if sistem_os == "Windows":
                 gpu_info = subprocess.check_output("wmic path win32_VideoController get name", shell=True).decode()
-                gpus = [line.strip() for line in gpu_info.split('\n') if line.strip() and "Name" not in line]
+                lines = [line.strip() for line in gpu_info.split('\n') if line.strip() and "Name" not in line]
+                for gpu in lines:
+                    if "Virtual" not in gpu and "Hyper-V" not in gpu and "Basic" not in gpu:
+                        gpus.append(gpu)
             elif sistem_os == "Linux":
                 gpu_info = subprocess.check_output("lspci | grep -i vga", shell=True).decode()
                 for line in gpu_info.strip().split('\n'):
@@ -80,15 +122,85 @@ class HardwareDetector:
                 gpu_info = subprocess.check_output("system_profiler SPDisplaysDataType | grep Chipset", shell=True).decode()
                 gpus = [line.strip().replace("Chipset Model: ", "") for line in gpu_info.split('\n') if line.strip()]
         except Exception as e:
-            gpus.append(f"Gagal membaca informasi GPU: {e}")
-        return gpus
+            gpus.append(f"Gagal membaca informasi GPU")
+        
+        return gpus if gpus else ["Tidak ada GPU yang terdeteksi"]
+
+    @staticmethod
+    def _format_waktu_baterai(secs):
+        """Mengubah detik sisa baterai menjadi string jam:menit yang mudah dibaca."""
+        if secs is None or secs < 0:
+            return "-"
+        jam, sisa = divmod(int(secs), 3600)
+        menit = sisa // 60
+        return f"{jam} jam {menit} menit"
+
+    def _dapatkan_info_baterai(self):
+        """Mendeteksi persentase, status, perkiraan waktu, dan kesehatan baterai."""
+        pct = "-"
+        status = "-"
+        time_left = "-"
+        health = "-"
+        wh_current = "-"
+        wh_design = "-"
+
+        # 1. Dapatkan info dasar lintas platform (persentase, status, waktu tersisa)
+        try:
+            battery = psutil.sensors_battery()
+            if battery:
+                pct = f"{battery.percent}%"
+                if battery.power_plugged:
+                    status = "Penuh" if battery.percent >= 100 else "Mengisi Daya (Charging)"
+                else:
+                    status = "Memakai Baterai (Discharging)"
+                    time_left = self._format_waktu_baterai(battery.secsleft)
+            else:
+                status = "Tidak ada baterai (PC Desktop)"
+        except Exception:
+            pass
+
+        # 2. Dapatkan statistik mWh/Wh spesifik di Windows (Sama dengan script batch)
+        if platform.system() == "Windows":
+            try:
+                # Opsional alternatif mWh jika root/wmi dibatasi: gunakan wmic / powershell batteryreport
+                output = subprocess.check_output('powershell "Get-WmiObject -Namespace root\\wmi -Class BatteryStaticData | Select-Object DesignedCapacity | ConvertTo-Json"', shell=True).decode()
+                data_static = json.loads(output) if output.strip() else {}
+
+                output_curr = subprocess.check_output('powershell "Get-WmiObject -Namespace root\\wmi -Class BatteryFullChargedCapacity | Select-Object FullChargedCapacity | ConvertTo-Json"', shell=True).decode()
+                data_curr = json.loads(output_curr) if output_curr.strip() else {}
+
+                # Ambil nilai mWh dan konversi ke Wh (dibagi 1000)
+                designed = data_static.get('DesignedCapacity') if isinstance(data_static, dict) else None
+                full = data_curr.get('FullChargedCapacity') if isinstance(data_curr, dict) else None
+
+                if designed:
+                    wh_design = f"{round(designed / 1000, 2)} Wh"
+                if full:
+                    wh_current = f"{round(full / 1000, 2)} Wh"
+
+                # Kesehatan = kapasitas penuh saat ini / kapasitas desain
+                if designed and full:
+                    health = f"{round(full / designed * 100, 1)}% ({wh_current} / {wh_design})"
+            except Exception:
+                # Fallback jika WMI kelas root/wmi kosong/tidak diizinkan (pada beberapa device PC Desktop)
+                if pct != "-":
+                    wh_current = "N/A (PC Desktop/No Battery Data)"
+                    wh_design = "N/A"
+                    health = "N/A"
+
+        return {
+            "percent": pct,
+            "status": status,
+            "time_left": time_left,
+            "health": health,
+            "wh_current": wh_current,
+            "wh_design": wh_design,
+        }
 
     def get_all_info(self):
-        """Mengompilasi data dalam struktur dictionary bersih untuk Controller/Flask"""
         cpu_info = cpuinfo.get_cpu_info()
         svmem = psutil.virtual_memory()
         
-        # Ambil data partisi logis
         partisi_logis = []
         for partition in psutil.disk_partitions():
             try:
@@ -104,7 +216,6 @@ class HardwareDetector:
             except PermissionError:
                 continue
 
-        # Ambil kecepatan CPU jika tersedia
         cpu_speed = "Tidak diketahui"
         try:
             freq = psutil.cpu_freq()
@@ -112,11 +223,18 @@ class HardwareDetector:
         except Exception:
             pass
 
+        os_name = f"{platform.system()} {platform.release()} ({platform.version()})"
+        os_arch = platform.machine()
+        full_os_str = f"{os_name} {os_arch}".strip()
+
         return {
             "perangkat": {
+                "hostname": self._dapatkan_hostname(),
+                "mac_address": self._dapatkan_mac_address(),
+                "serial_number": self._dapatkan_serial_number(),
                 "merk": self.dapatkan_merk_laptop(),
-                "os": f"{platform.system()} {platform.release()}",
-                "arsitektur": platform.machine()
+                "os": full_os_str,
+                "arsitektur": os_arch
             },
             "cpu": {
                 "model": cpu_info.get('brand_raw', 'Tidak terdeteksi'),
@@ -133,5 +251,6 @@ class HardwareDetector:
                 "fisik": self.dapatkan_tipe_disk(),
                 "logis": partisi_logis
             },
-            "gpu": self.dapatkan_info_gpu()
+            "gpu": self.dapatkan_info_gpu(),
+            "battery": self._dapatkan_info_baterai() # Tambahan objek data baterai
         }
