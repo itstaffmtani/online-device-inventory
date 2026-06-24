@@ -1,0 +1,21 @@
+# systemd unit untuk Laptop Inventory (MTani).
+# Pasang ke: /etc/systemd/system/laptop-inventory.service
+# Lalu: sudo systemctl daemon-reload && sudo systemctl enable --now laptop-inventory
+#
+# Sesuaikan WorkingDirectory/User bila lokasi/akun berbeda.
+
+[Unit]
+Description=Laptop Inventory (MTani) - Flask app via gunicorn
+After=network.target
+
+[Service]
+User=www-data
+Group=www-data
+WorkingDirectory=/var/www/laptop-inventory
+EnvironmentFile=/var/www/laptop-inventory/.env
+ExecStart=/var/www/laptop-inventory/venv/bin/gunicorn --workers 3 --bind 127.0.0.1:8080 app:app
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
