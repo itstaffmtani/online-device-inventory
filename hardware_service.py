@@ -126,43 +126,76 @@ class HardwareDetector:
         
         return gpus if gpus else ["Tidak ada GPU yang terdeteksi"]
 
+    @staticmethod
+    def _format_waktu_baterai(secs):
+        """Mengubah detik sisa baterai menjadi string jam:menit yang mudah dibaca."""
+        if secs is None or secs < 0:
+            return "-"
+        jam, sisa = divmod(int(secs), 3600)
+        menit = sisa // 60
+        return f"{jam} jam {menit} menit"
+
     def _dapatkan_info_baterai(self):
-        """Mendeteksi persentase baterai, Wh saat ini, dan kapasitas desain."""
+        """Mendeteksi persentase, status, perkiraan waktu, dan kesehatan baterai."""
         pct = "-"
+        status = "-"
+        time_left = "-"
+        health = "-"
         wh_current = "-"
         wh_design = "-"
-        
-        # 1. Dapatkan persentase dasar (lintas platform)
+
+        # 1. Dapatkan info dasar lintas platform (persentase, status, waktu tersisa)
         try:
             battery = psutil.sensors_battery()
             if battery:
                 pct = f"{battery.percent}%"
-        except:
+                if battery.power_plugged:
+                    status = "Penuh" if battery.percent >= 100 else "Mengisi Daya (Charging)"
+                else:
+                    status = "Memakai Baterai (Discharging)"
+                    time_left = self._format_waktu_baterai(battery.secsleft)
+            else:
+                status = "Tidak ada baterai (PC Desktop)"
+        except Exception:
             pass
 
         # 2. Dapatkan statistik mWh/Wh spesifik di Windows (Sama dengan script batch)
         if platform.system() == "Windows":
             try:
-                cmd = 'powershell "Get-WmiObject -Namespace root\\wmi -Class BatteryStaticData, BatteryFullChargedCapacity | ConvertTo-Json"'
                 # Opsional alternatif mWh jika root/wmi dibatasi: gunakan wmic / powershell batteryreport
                 output = subprocess.check_output('powershell "Get-WmiObject -Namespace root\\wmi -Class BatteryStaticData | Select-Object DesignedCapacity | ConvertTo-Json"', shell=True).decode()
                 data_static = json.loads(output) if output.strip() else {}
-                
+
                 output_curr = subprocess.check_output('powershell "Get-WmiObject -Namespace root\\wmi -Class BatteryFullChargedCapacity | Select-Object FullChargedCapacity | ConvertTo-Json"', shell=True).decode()
                 data_curr = json.loads(output_curr) if output_curr.strip() else {}
 
                 # Ambil nilai mWh dan konversi ke Wh (dibagi 1000)
-                if isinstance(data_static, dict) and 'DesignedCapacity' in data_static:
-                    wh_design = f"{round(data_static['DesignedCapacity'] / 1000, 2)} Wh"
-                if isinstance(data_curr, dict) and 'FullChargedCapacity' in data_curr:
-                    wh_current = f"{round(data_curr['FullChargedCapacity'] / 1000, 2)} Wh"
-            except:
+                designed = data_static.get('DesignedCapacity') if isinstance(data_static, dict) else None
+                full = data_curr.get('FullChargedCapacity') if isinstance(data_curr, dict) else None
+
+                if designed:
+                    wh_design = f"{round(designed / 1000, 2)} Wh"
+                if full:
+                    wh_current = f"{round(full / 1000, 2)} Wh"
+
+                # Kesehatan = kapasitas penuh saat ini / kapasitas desain
+                if designed and full:
+                    health = f"{round(full / designed * 100, 1)}% ({wh_current} / {wh_design})"
+            except Exception:
                 # Fallback jika WMI kelas root/wmi kosong/tidak diizinkan (pada beberapa device PC Desktop)
                 if pct != "-":
                     wh_current = "N/A (PC Desktop/No Battery Data)"
                     wh_design = "N/A"
+                    health = "N/A"
 
-        return {"percent": pct, "wh_current": wh_current, "wh_design": wh_design}
+        return {
+            "percent": pct,
+            "status": status,
+            "time_left": time_left,
+            "health": health,
+            "wh_current": wh_current,
+            "wh_design": wh_design,
+        }
 
     def get_all_info(self):
         cpu_info = cpuinfo.get_cpu_info()
@@ -219,5 +252,5 @@ class HardwareDetector:
                 "logis": partisi_logis
             },
             "gpu": self.dapatkan_info_gpu(),
-            "baterai": self._dapatkan_info_baterai() # Tambahan objek data baterai
+            "battery": self._dapatkan_info_baterai() # Tambahan objek data baterai
         }
