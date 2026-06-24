@@ -79,19 +79,20 @@
           <div class="space-y-5">
             <div>
               <label class="block text-sm font-semibold text-slate-700 mb-1"
-                >Nama lengkap <span class="text-rose-500">*</span></label
+                >Nama Karyawan <span class="text-rose-500">*</span></label
               >
               <input
                 type="text"
                 id="holder_name"
                 required
-                placeholder="Nama sesuai kartu karyawan"
+                placeholder="Nama lengkap karyawan"
                 class="w-full px-4 py-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
               />
             </div>
             <div>
               <label class="block text-sm font-semibold text-slate-700 mb-1"
-                >Kelompok kerja <span class="text-rose-500">*</span></label
+                >Kelompok Penggunaan Laptop
+                <span class="text-rose-500">*</span></label
               >
               <select
                 id="work_group"
@@ -99,21 +100,19 @@
                 onchange="toggleOtherGroup()"
                 class="w-full px-4 py-3 rounded-xl border border-slate-200 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
               >
-                <option value="">— Pilih kelompok kerja —</option>
-                <option value="field">Lapangan &amp; Mobilitas</option>
-                <option value="admin">Administrasi &amp; Operasional</option>
-                <option value="finance">Keuangan / Finance</option>
-                <option value="data_processing">
-                  Pengolahan Data / Analis
-                </option>
-                <option value="management">Manajemen / Manager</option>
-                <option value="it">IT &amp; Development</option>
+                <option value="">— Pilih kelompok penggunaan laptop —</option>
+                <option value="field">Lapangan / Mobilitas</option>
+                <option value="admin">Administrasi / Operasional</option>
+                <option value="finance">Keuangan</option>
+                <option value="data_processing">Pengolahan Data</option>
+                <option value="management">Manajemen / Manajerial</option>
+                <option value="it">IT / Development</option>
                 <option value="other">Lainnya…</option>
               </select>
               <input
                 type="text"
                 id="work_group_other"
-                placeholder="Tuliskan kelompok kerja Anda"
+                placeholder="Tuliskan kelompok penggunaan laptop"
                 class="hidden mt-2 w-full px-4 py-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
               />
             </div>
@@ -142,7 +141,7 @@
               </div>
               <div>
                 <label class="block text-sm font-semibold text-slate-700 mb-1"
-                  >Penempatan</label
+                  >Lokasi Penempatan</label
                 >
                 <input
                   type="text"
@@ -214,19 +213,21 @@
             >
           </p>
 
-          {% set groups = [ ('Identitas',
-          [('hostname','Hostname'),('serial','Serial Number'),('mac','MAC
-          Address'),('brand','Merk'),('model','Model')]), ('CPU', [('cpu','Model
-          CPU'),('cpu_cores','Core
-          fisik'),('cpu_threads','Thread'),('cpu_arch','Arsitektur'),('cpu_speed_mhz','Kecepatan
-          (MHz)')]), ('RAM', [('ram_gb','RAM (GB)'),('ram_type','Tipe
-          RAM'),('ram_speed_mhz','Speed (MHz)'),('ram_usage_pct','Pemakaian
-          (%)'),('ram_usage_gb','Terpakai (GB)')]), ('Penyimpanan & OS',
-          [('ssd_gb','SSD (GB)'),('ssd_type','Tipe SSD'),('hdd_gb','HDD
-          (GB)'),('os','Sistem Operasi'),('os_total_gb','Disk OS total
-          (GB)'),('os_free_gb','Disk OS sisa (GB)')]), ('GPU & Baterai',
-          [('gpu','GPU'),('battery_pct','Baterai (%)'),('battery_wh_full','Wh
-          penuh kini'),('battery_wh_design','Wh desain')]), ] %}
+          {% set groups = [ ('Identitas', [('hostname','Nama Perangkat /
+          Hostname'),('serial','Nomor Seri'),('mac','MAC
+          Address'),('brand','Merek'),('model','Model')]), ('CPU',
+          [('cpu','Model CPU / Prosesor'),('cpu_cores','Core
+          Fisik'),('cpu_threads','Thread'),('cpu_arch','Arsitektur'),('cpu_speed_mhz','Kecepatan
+          CPU (MHz)')]), ('RAM', [('ram_gb','RAM (GB)'),('ram_type','Tipe
+          RAM'),('ram_speed_mhz','Kecepatan RAM
+          (MHz)'),('ram_usage_pct','Pemakaian RAM (%)'),('ram_usage_gb','RAM
+          Terpakai (GB)')]), ('Penyimpanan & OS', [('ssd_gb','SSD
+          (GB)'),('ssd_type','Tipe SSD'),('hdd_gb','HDD (GB)'),('os','Sistem
+          Operasi'),('os_total_gb','Kapasitas Disk OS (GB)'),('os_free_gb','Sisa
+          Disk OS (GB)')]), ('GPU & Baterai', [('gpu','GPU / Kartu
+          Grafis'),('battery_pct','Kapasitas Baterai
+          (%)'),('battery_wh_full','Kapasitas Penuh Saat Ini
+          (Wh)'),('battery_wh_design','Kapasitas Desain (Wh)')]), ] %}
 
           <div class="space-y-5">
             {% for gname, fields in groups %}
@@ -294,7 +295,7 @@
           <div class="space-y-6">
             <div>
               <label class="block text-sm font-semibold text-slate-700 mb-1"
-                >Nomor Asset Inventaris
+                >Nomor Aset Inventaris
                 <span class="text-slate-400 font-normal"
                   >(opsional)</span
                 ></label
@@ -310,7 +311,7 @@
 
             <div>
               <label class="block text-sm font-semibold text-slate-700 mb-2"
-                >Status laptop</label
+                >Status Kepemilikan Laptop</label
               >
               <div class="grid grid-cols-2 gap-4">
                 <label
@@ -321,6 +322,7 @@
                     name="laptop_status"
                     value="office_inventory"
                     class="hidden"
+                    required
                   />
                   <svg
                     class="w-5 h-5 text-slate-500"
@@ -377,6 +379,7 @@
                     name="physical_condition"
                     value="good"
                     class="hidden"
+                    required
                   />
                   <svg
                     class="w-5 h-5 text-emerald-500"
@@ -446,7 +449,7 @@
 
             <div>
               <label class="block text-sm font-semibold text-slate-700 mb-2"
-                >Kelengkapan</label
+                >Kelengkapan Laptop</label
               >
               <div class="grid grid-cols-1 md:grid-cols-2 gap-2">
                 <label
@@ -494,7 +497,7 @@
             <div>
               <div>
                 <label class="block text-sm font-semibold text-slate-700 mb-1"
-                  >Tahun pembelian</label
+                  >Tahun Pembelian</label
                 >
                 <input
                   type="number"
@@ -509,7 +512,7 @@
 
             <div>
               <label class="block text-sm font-semibold text-slate-700 mb-1"
-                >Kerusakan / keluhan</label
+                >Kerusakan / Keluhan</label
               >
               <textarea
                 id="issues"
@@ -677,12 +680,12 @@
         }
         if (!groupEl.value) {
           flagInvalid(groupEl);
-          alert("Pilih kelompok kerja.");
+          alert("Pilih kelompok penggunaan laptop.");
           return;
         }
         if (groupEl.value === "other" && !otherEl.value.trim()) {
           flagInvalid(otherEl);
-          alert("Tuliskan kelompok kerja pada pilihan Lainnya.");
+          alert("Tuliskan penggunaan laptop pada pilihan Lainnya.");
           return;
         }
 
