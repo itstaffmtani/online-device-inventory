@@ -10,6 +10,7 @@
 # collector di laptop karyawan (lihat docs/architecture.md).
 
 from flask import Flask
+from werkzeug.middleware.proxy_fix import ProxyFix
 
 import db
 from config import config
@@ -41,6 +42,11 @@ def create_app():
     # Register blueprint.
     app.register_blueprint(public_bp)
     app.register_blueprint(admin_bp)
+
+    # Hormati header dari reverse proxy (nginx): proto HTTPS + sub-path mount.
+    # X-Forwarded-Prefix membuat url_for() & redirect ikut prefix (mis.
+    # /laptop-inventory) saat app dipasang di sub-path. Tanpa proxy → no-op.
+    app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_prefix=1)
 
     return app
 

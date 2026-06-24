@@ -41,7 +41,8 @@ def login_required(view):
     @wraps(view)
     def wrapped(*args, **kwargs):
         if not session.get("admin"):
-            return redirect(url_for("admin.login", next=request.path))
+            # Simpan path LENGKAP (termasuk prefix sub-path) agar redirect balik benar.
+            return redirect(url_for("admin.login", next=request.script_root + request.path))
         return view(*args, **kwargs)
     return wrapped
 
@@ -65,7 +66,10 @@ def login():
     if request.method == "POST":
         if request.form.get("password") == current_app.config["ADMIN_PASSWORD"]:
             session["admin"] = True
-            nxt = request.args.get("next") or url_for("admin.dashboard")
+            nxt = request.args.get("next") or ""
+            # Hanya izinkan path lokal (cegah open-redirect ke domain luar).
+            if not nxt.startswith("/") or nxt.startswith("//"):
+                nxt = url_for("admin.dashboard")
             return redirect(nxt)
         error = "Password salah."
     return render_template("admin/login.html", error=error)

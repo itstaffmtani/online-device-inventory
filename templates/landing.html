@@ -133,7 +133,7 @@
       <!-- Download -->
       <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
         <a
-          href="/dl/windows"
+          href="{{ request.script_root }}/dl/windows"
           class="group bg-white rounded-2xl border border-slate-200 p-6 hover:border-indigo-300 hover:shadow-md transition flex items-center gap-4"
         >
           <span
@@ -159,7 +159,7 @@
           </div>
         </a>
         <a
-          href="/dl/mac"
+          href="{{ request.script_root }}/dl/mac"
           class="group bg-white rounded-2xl border border-slate-200 p-6 hover:border-indigo-300 hover:shadow-md transition flex items-center gap-4"
         >
           <span
@@ -192,7 +192,7 @@
           Tidak bisa menjalankan aplikasi cek spesifikasi?
         </p>
         <a
-          href="/form"
+          href="{{ request.script_root }}/form"
           class="inline-flex items-center gap-1.5 mt-1 text-sm font-semibold text-indigo-600 hover:text-indigo-700"
         >
           Isi form manual tanpa aplikasi
