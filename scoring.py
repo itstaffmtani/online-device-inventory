@@ -454,7 +454,13 @@ def build_insights(sub: dict, current_year: int = None) -> dict:
     # — Baterai —
     health = _battery_health(sub)
     if health is None:
-        components.append({"label": "Baterai", "tone": "neutral", "text": "Data kesehatan baterai tidak tersedia."})
+        # Bedakan: ada kapasitas penuh tapi desain tak terdeteksi (sehingga
+        # kesehatan tak bisa dihitung) vs benar-benar tak ada data baterai.
+        if _num(sub.get("battery_wh_full")) and not _num(sub.get("battery_wh_design")):
+            text = "Kapasitas desain baterai tidak terdeteksi, sehingga kesehatan baterai belum dapat dihitung."
+        else:
+            text = "Data kesehatan baterai tidak tersedia."
+        components.append({"label": "Baterai", "tone": "neutral", "text": text})
     elif health >= 80:
         components.append({"label": "Baterai", "tone": "good", "text": f"Baterai sehat ({round(health)}%)."})
     elif health >= 60:

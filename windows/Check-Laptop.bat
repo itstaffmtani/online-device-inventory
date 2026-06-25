@@ -227,6 +227,28 @@ try {
     }
 } catch {}
 
+# Fallback: bila kapasitas desain/penuh belum terdeteksi (BatteryStaticData tak
+# ada di sebagian laptop), ambil dari powercfg battery report (XML, mWh).
+# Tidak butuh admin. File sementara ditulis ke %TEMP% lalu dihapus.
+try {
+    if (-not $params.Contains("battery_wh_design") -or -not $params.Contains("battery_wh_full")) {
+        $rep = Join-Path $env:TEMP ("batt_" + [guid]::NewGuid().ToString("N") + ".xml")
+        powercfg /batteryreport /output $rep /xml | Out-Null
+        if (Test-Path $rep) {
+            $txt = Get-Content $rep -Raw
+            if (-not $params.Contains("battery_wh_design") -and
+                $txt -match '<DesignCapacity>(\d+)</DesignCapacity>' -and [int]$Matches[1] -gt 0) {
+                Set-Param "battery_wh_design" ([math]::Round([int]$Matches[1] / 1000, 1))
+            }
+            if (-not $params.Contains("battery_wh_full") -and
+                $txt -match '<FullChargeCapacity>(\d+)</FullChargeCapacity>' -and [int]$Matches[1] -gt 0) {
+                Set-Param "battery_wh_full" ([math]::Round([int]$Matches[1] / 1000, 1))
+            }
+            Remove-Item $rep -ErrorAction SilentlyContinue
+        }
+    }
+} catch {}
+
 # --- Bangun URL & buka browser ----------------------------------------------
 Add-Type -AssemblyName System.Web -ErrorAction SilentlyContinue
 
