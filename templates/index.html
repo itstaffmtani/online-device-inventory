@@ -184,11 +184,13 @@
             </div>
             <div class="flex gap-2 text-[10px]">
               <span
-                class="px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-100 font-semibold"
+                id="badge-auto"
+                class="px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-100 font-semibold transition-opacity"
                 >Otomatis</span
               >
               <span
-                class="px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-100 font-semibold"
+                id="badge-manual"
+                class="px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-100 font-semibold transition-opacity"
                 >Manual</span
               >
             </div>
@@ -643,14 +645,32 @@
         other: "Lainnya",
       };
 
-      // Tampilkan hint bila tak ada spek otomatis terdeteksi.
+      // Tampilkan hint bila tak ada spek otomatis terdeteksi, dan tandai
+      // badge mana (Otomatis/Manual) yang aktif sesuai cara pengisian.
+      // Badge mendeteksi langsung dari kolom: ada kolom readonly = Otomatis,
+      // ada kolom kosong yang diketik user = Manual (bisa keduanya aktif).
       (function initSpecHint() {
-        const hasAuto = [...document.querySelectorAll("input[data-spec]")].some(
-          (i) => i.hasAttribute("readonly"),
-        );
+        const specs = [...document.querySelectorAll("input[data-spec]")];
+        const hasAuto = specs.some((i) => i.hasAttribute("readonly"));
         document
           .getElementById("spec-hint")
           .classList.toggle("hidden", hasAuto);
+
+        function refreshBadges() {
+          const hasManual = specs.some(
+            (i) => !i.hasAttribute("readonly") && i.value.trim() !== "",
+          );
+          document
+            .getElementById("badge-auto")
+            .classList.toggle("opacity-30", !hasAuto);
+          document
+            .getElementById("badge-manual")
+            .classList.toggle("opacity-30", !hasManual);
+        }
+        specs
+          .filter((i) => !i.hasAttribute("readonly"))
+          .forEach((i) => i.addEventListener("input", refreshBadges));
+        refreshBadges();
       })();
 
       function toggleOtherGroup() {
