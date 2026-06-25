@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Edit Data — Inventaris MTani</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>body { font-family: system-ui, sans-serif; }</style>
+</head>
+<body class="bg-slate-50 min-h-screen text-slate-800">
+<div class="container mx-auto px-4 py-8 max-w-4xl">
+
+    <div class="flex items-center justify-between gap-3 flex-wrap mb-6">
+        <div>
+            <h1 class="text-2xl font-bold text-slate-900">Edit Data Submission</h1>
+            <p class="text-sm text-slate-500">
+                {{ sub.holder_name or "—" }} ·
+                {{ (sub.serial_number or sub.asset_no or "tanpa serial") }} ·
+                ID #{{ sub.id }}
+            </p>
+        </div>
+        <a href="{{ url_for('admin.laptop_detail', device_id=sub.device_id) }}"
+           class="text-sm px-4 py-2 rounded-lg border border-slate-200 bg-white hover:bg-slate-50">← Kembali</a>
+    </div>
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% for cat, msg in messages %}
+      <div class="mb-4 text-sm rounded-lg px-4 py-2.5 {{ 'bg-rose-50 text-rose-700 border border-rose-100' if cat=='error' else 'bg-emerald-50 text-emerald-700 border border-emerald-100' }}">{{ msg }}</div>
+      {% endfor %}
+    {% endwith %}
+
+    <div class="bg-amber-50 border border-amber-200 text-amber-800 text-sm rounded-xl px-4 py-3 mb-6">
+        Mengedit data ini akan <strong>menghitung ulang skor kelayakan otomatis</strong>.
+        Perubahan hanya berlaku pada submission ini (snapshot), tidak mengubah riwayat lain.
+    </div>
+
+    <form method="POST" class="space-y-6">
+        {% for title, fields in sections %}
+        <div class="bg-white rounded-2xl shadow-sm border border-slate-200 p-5">
+            <h2 class="text-sm font-bold text-slate-700 uppercase tracking-wide mb-4">{{ title }}</h2>
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {% for col, label, kind in fields %}
+                <div class="{{ 'sm:col-span-2' if kind == 'textarea' else '' }}">
+                    <label class="block text-xs font-semibold text-slate-600 mb-1" for="{{ col }}">{{ label }}</label>
+                    {% if kind == 'group' %}
+                        <select id="{{ col }}" name="{{ col }}"
+                                class="w-full px-3 py-2 rounded-lg border border-slate-200 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500">
+                            {% for g in groups %}
+                            <option value="{{ g.key }}" {{ 'selected' if sub.get(col) == g.key else '' }}>
+                                {{ ("Lainnya" if g.key == "other" else g.label) }}{{ "" if g.is_active else " (nonaktif)" }}
+                            </option>
+                            {% endfor %}
+                        </select>
+                    {% elif kind is string and kind == 'textarea' %}
+                        <textarea id="{{ col }}" name="{{ col }}" rows="2"
+                                  class="w-full px-3 py-2 rounded-lg border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500">{{ sub.get(col) if sub.get(col) is not none else '' }}</textarea>
+                    {% elif kind is string %}
+                        <input type="{{ 'number' if kind == 'number' else 'text' }}"
+                               {{ 'step=any' if kind == 'number' else '' }}
+                               id="{{ col }}" name="{{ col }}"
+                               value="{{ sub.get(col) if sub.get(col) is not none else '' }}"
+                               class="w-full px-3 py-2 rounded-lg border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500">
+                    {% else %}
+                        {# kind = list of (value,label) -> select #}
+                        {% set cur = sub.get(col) %}
+                        <select id="{{ col }}" name="{{ col }}"
+                                class="w-full px-3 py-2 rounded-lg border border-slate-200 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500">
+                            {% for value, opt_label in kind %}
+                            <option value="{{ value }}" {{ 'selected' if (cur is none and value == '') or (cur is not none and (cur|string) == (value|string)) else '' }}>{{ opt_label }}</option>
+                            {% endfor %}
+                        </select>
+                    {% endif %}
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+        {% endfor %}
+
+        <div class="flex items-center gap-3 sticky bottom-4">
+            <button type="submit"
+                    class="px-5 py-2.5 rounded-xl bg-indigo-600 text-white font-semibold shadow-sm hover:bg-indigo-700">
+                Simpan & Hitung Ulang Skor
+            </button>
+            <a href="{{ url_for('admin.laptop_detail', device_id=sub.device_id) }}"
+               class="px-5 py-2.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-50">Batal</a>
+        </div>
+    </form>
+</div>
+</body>
+</html>

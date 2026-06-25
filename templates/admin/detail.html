@@ -35,8 +35,24 @@
             <a href="{{ url_for('public.public_detail', device_id=device.id) }}" target="_blank" class="inline-flex items-center gap-1.5 border border-slate-200 bg-white text-slate-600 text-xs font-medium px-3 py-1.5 rounded-lg hover:bg-slate-50">
                 Buka halaman publik ↗
             </a>
+            {% if latest %}
+            <a href="{{ url_for('admin.edit_submission', submission_id=latest.id) }}" class="inline-flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-medium px-3 py-1.5 rounded-lg">
+                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="1.6" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L10.582 16.07a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931Zm0 0L19.5 7.125"/></svg>
+                Edit data
+            </a>
+            <form method="POST" action="{{ url_for('admin.recalc_laptop', device_id=device.id) }}"
+                  onsubmit="return confirm('Hitung ulang skor laptop ini (semua riwayat) sesuai parameter terbaru?');">
+                <button class="inline-flex items-center gap-1.5 border border-slate-200 bg-white text-slate-600 text-xs font-medium px-3 py-1.5 rounded-lg hover:bg-slate-50">↻ Perbarui skor</button>
+            </form>
+            {% endif %}
         </div>
     </div>
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% for cat, msg in messages %}
+      <div class="no-print mt-4 text-sm rounded-lg px-4 py-2.5 {{ 'bg-rose-50 text-rose-700 border border-rose-100' if cat=='error' else 'bg-emerald-50 text-emerald-700 border border-emerald-100' }}">{{ msg }}</div>
+      {% endfor %}
+    {% endwith %}
 
     <!-- HEADER -->
     <div class="mt-3 bg-white rounded-2xl border border-slate-200 p-6 mb-4">
@@ -69,6 +85,24 @@
 
     {% if latest %}
 
+    <!-- SARAN PENEMPATAN (rightsizing) -->
+    {% if suggest and suggest.text %}
+    <div class="rounded-xl border p-4 mb-4 {% if suggest.suggestion %}bg-sky-50 border-sky-200 text-sky-900{% else %}bg-rose-50 border-rose-200 text-rose-900{% endif %}">
+        <div class="flex items-start gap-2">
+            <svg class="w-5 h-5 shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke-width="1.6" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M7.5 21 3 16.5m0 0L7.5 12M3 16.5h13.5m0-13.5L21 7.5m0 0L16.5 12M21 7.5H7.5"/></svg>
+            <div>
+                <div class="text-xs font-bold uppercase tracking-wide opacity-70 mb-0.5">Saran Penempatan</div>
+                <div class="text-sm font-semibold">{{ suggest.text }}</div>
+                {% if suggest.eligible %}
+                <div class="text-xs mt-1 opacity-80">Kelompok yang cocok untuk spek ini:
+                    {% for e in suggest.eligible %}<span class="inline-block px-1.5 py-0.5 rounded bg-white/60 mr-1">{{ e.label }} ({{ e.total }})</span>{% endfor %}
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
     <!-- INSIGHT / KESIMPULAN -->
     {% if insights %}
     {% set tone_dot = {'good':'bg-emerald-500','warn':'bg-amber-500','bad':'bg-rose-500','neutral':'bg-slate-400'} %}
@@ -77,6 +111,20 @@
     <div class="bg-white rounded-xl border border-slate-200 p-5 mb-4 print-border">
         <h2 class="text-xs font-bold uppercase text-slate-400 mb-3">Kesimpulan & Insight</h2>
         <div class="rounded-xl border {{ head_bg[insights.tone] }} p-3 mb-4 text-sm font-semibold">{{ insights.verdict }}</div>
+
+        {# Vonis 2 sumbu: Skor Optimal (spek) vs Beban Nyata #}
+        {% if insights.two_axis %}
+        {% set ta = insights.two_axis %}
+        <div class="rounded-xl border {{ head_bg[ta.tone] }} p-3 mb-4">
+            <div class="flex items-center gap-2 mb-1.5">
+                <span class="text-[10px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded {{ 'bg-emerald-100 text-emerald-700' if ta.spec_ok else 'bg-rose-100 text-rose-700' }}">Spek {{ 'Layak' if ta.spec_ok else 'Kurang' }}</span>
+                <span class="text-slate-400 text-xs">×</span>
+                <span class="text-[10px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded {{ 'bg-emerald-100 text-emerald-700' if ta.load_ok else 'bg-rose-100 text-rose-700' }}">Beban {{ 'Ringan' if ta.load_ok else 'Berat' }}</span>
+            </div>
+            <div class="text-sm">{{ ta.headline }}</div>
+        </div>
+        {% endif %}
+
         <div class="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-4">
             <div>
                 <div class="text-xs text-slate-400 font-semibold mb-2">Penjelasan</div>
@@ -465,7 +513,7 @@
                 <h3 class="text-[11px] font-bold uppercase text-slate-400 mb-2 pb-1 border-b border-slate-100">Info Pengisian</h3>
                 <dl class="space-y-1.5">
                     <div class="flex justify-between gap-2">
-                        <dt class="text-xs text-slate-400 shrink-0">Waktu Submit</dt>
+                        <dt class="text-xs text-slate-400 shrink-0">Waktu Pengisian</dt>
                         <dd class="text-xs font-medium text-right">{{ latest.submitted_at|fmt_dt }}</dd>
                     </div>
                     <div class="flex justify-between gap-2">
@@ -511,7 +559,7 @@
                         <th class="px-4 py-2">Jabatan / Perusahaan</th>
                         <th class="px-4 py-2">Kelompok</th>
                         <th class="px-4 py-2">RAM</th>
-                        <th class="px-4 py-2">Pakai RAM</th>
+                        <th class="px-4 py-2">Pemakaian RAM</th>
                         <th class="px-4 py-2 text-center">Spek</th>
                         <th class="px-4 py-2 text-center">Beban</th>
                         <th class="px-4 py-2 text-center">Total</th>

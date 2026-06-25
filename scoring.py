@@ -20,6 +20,8 @@ import os
 import re
 import sqlite3
 
+import scoring_config
+
 try:
     from config import config
     _DB_PATH = config.DB_PATH
@@ -33,38 +35,51 @@ CPU_SEED_CSV = os.path.join(
 )
 
 # ---------------------------------------------------------------------------
-# §1 — Profil kebutuhan per kelompok kerja (scoring.md §1).
-#   cpu_floor / cpu_ideal = skor PassMark multi-thread. ram dalam GB.
+# §1/§2e/§4a/§5 — Parameter skoring kini DATA-DRIVEN (lihat scoring_config.py).
+#   Profil per kelompok (cpu_floor/ideal, ram_min/ideal), bobot komponen, ambang
+#   status, masa pakai EOL, dan blend total dibaca dari DB (work_groups +
+#   scoring_settings) supaya admin bisa kalibrasi lewat UI /admin/skoring. Nilai
+#   DEFAULT/seed (identik dgn konstanta lama) ada di scoring_config._DEFAULT_*.
+#   Fungsi di bawah hanya delegasi agar pemanggil lama tetap bekerja.
 # ---------------------------------------------------------------------------
-PROFILES = {
-    "field":           {"cpu_floor": 8000,  "cpu_ideal": 16000, "ram_min": 8,  "ram_ideal": 16},
-    "admin":           {"cpu_floor": 12000, "cpu_ideal": 18000, "ram_min": 8,  "ram_ideal": 16},
-    "finance":         {"cpu_floor": 17000, "cpu_ideal": 26000, "ram_min": 16, "ram_ideal": 32},
-    "data_processing": {"cpu_floor": 17000, "cpu_ideal": 26000, "ram_min": 16, "ram_ideal": 32},
-    "management":      {"cpu_floor": 15000, "cpu_ideal": 24000, "ram_min": 16, "ram_ideal": 16},
-    "it":              {"cpu_floor": 17000, "cpu_ideal": 24000, "ram_min": 16, "ram_ideal": 32},
-}
 # Profil cadangan bila work_group tak dikenal (pakai 'admin' sebagai netral).
-DEFAULT_PROFILE = "admin"
-
-# §2e — Bobot komponen Skor Spek.
-WEIGHTS_DEFAULT    = {"cpu": 0.35, "ram": 0.30, "storage": 0.20, "battery": 0.15}
-WEIGHTS_MANAGEMENT = {"cpu": 0.30, "ram": 0.25, "storage": 0.20, "battery": 0.25}
-
-# §5 — EOL
-BASE_LIFESPAN_YEARS = 5
+DEFAULT_PROFILE = scoring_config.DEFAULT_PROFILE_KEY  # 'admin'
 
 # §6 — Estimasi kasar PassMark dari jumlah thread bila CPU tak dikenal.
 PASSMARK_PER_THREAD = 1800
 
 LABEL = {"eligible": "Layak", "upgrade": "Upgrade", "replace": "Ganti"}
 
-# Nama tampilan kelompok kerja (untuk teks insight). 'other' pakai work_group_other.
-WORK_GROUP_DISPLAY = {
-    "field": "Lapangan/Mobilitas", "admin": "Administrasi", "finance": "Keuangan",
-    "data_processing": "Pengolahan Data", "management": "Manajemen",
-    "it": "IT/Development", "other": "Lainnya",
-}
+
+def get_profiles():
+    """{key: {cpu_floor, cpu_ideal, ram_min, ram_ideal}} dari DB (fallback DEFAULT)."""
+    return scoring_config.get_profiles()
+
+
+def get_weights():
+    """{key: {cpu, ram, storage, battery}} dari DB (fallback DEFAULT)."""
+    return scoring_config.get_weights()
+
+
+def get_settings():
+    """Ambang global (status cutoff, EOL, blend) dari DB (fallback DEFAULT)."""
+    return scoring_config.get_settings()
+
+
+def __getattr__(name):
+    """Jaring pengaman: `scoring.PROFILES` / `WEIGHTS_DEFAULT` tetap bisa diakses
+    (dinamis dari DB) untuk pemanggil lama. Disarankan pakai get_profiles()."""
+    if name == "PROFILES":
+        return scoring_config.get_profiles()
+    if name == "WEIGHTS_DEFAULT":
+        return scoring_config.get_weights().get(DEFAULT_PROFILE, {})
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
+def _is_windows11(os_name):
+    """True bila OS yang dilaporkan SUDAH Windows 11 (maka flag kesiapan tak relevan)."""
+    s = (os_name or "").lower()
+    return "windows" in s and "11" in s
 
 
 # ---------------------------------------------------------------------------
@@ -284,11 +299,42 @@ def _ram_pressure(pct):
     return _clamp(40 - (pct - 90) / 10 * 40, 0, 40)  # 40 -> 0
 
 
+def _cpu_pressure(pct):
+    """§3a — poin tekanan dari snapshot cpu_usage_pct (rata-rata ~3s).
+
+    CPU wajar melonjak sesaat, jadi ambangnya sedikit lebih longgar dari RAM.
+    Tinggi-berkelanjutan = laptop ngos-ngosan untuk beban kerjanya.
+    """
+    if pct is None:
+        return 100.0  # netral
+    if pct <= 60:
+        return 100.0
+    if pct <= 80:
+        return 100 - (pct - 60) / 20 * 30          # 100 -> 70
+    if pct <= 92:
+        return 70 - (pct - 80) / 12 * 30           # 70 -> 40
+    return _clamp(40 - (pct - 92) / 8 * 40, 0, 40)   # 40 -> 0
+
+
 def score_load(sub, profile):
-    """§3 — Skor Beban 0-100."""
-    pct = _num(sub.get("ram_usage_pct"))
+    """§3 — Skor Beban 0-100.
+
+    Tekanan = rata-rata sinyal beban NYATA yang tersedia (RAM terpakai + CPU
+    terpakai). Hanya sinyal yang ada datanya yang dirata-rata, sehingga submission
+    lama (tanpa cpu_usage_pct) tetap memakai tekanan RAM saja — angka tidak
+    berubah. Kecukupan = RAM fisik vs kebutuhan minimum peran.
+    """
+    ram_pct = _num(sub.get("ram_usage_pct"))
+    cpu_pct = _num(sub.get("cpu_usage_pct"))
     ram_gb = _num(sub.get("ram_gb")) or 0
-    pressure = _ram_pressure(pct)
+
+    parts = []
+    if ram_pct is not None:
+        parts.append(_ram_pressure(ram_pct))
+    if cpu_pct is not None:
+        parts.append(_cpu_pressure(cpu_pct))
+    pressure = sum(parts) / len(parts) if parts else 100.0
+
     adequacy = _clamp(round(100 * ram_gb / profile["ram_min"]), 0, 100)
     return round(0.5 * pressure + 0.5 * adequacy)
 
@@ -304,19 +350,75 @@ def _lower_to(current, target):
     return target if _RANK[target] < _RANK[current] else current
 
 
-def status_from_total(total):
-    if total >= 70:
+def status_from_total(total, settings=None):
+    """Status dari Skor Total memakai ambang dari DB (scoring_settings)."""
+    s = settings or scoring_config.get_settings()
+    if total >= s["status_eligible_min"]:
         return "eligible"
-    if total >= 45:
+    if total >= s["status_upgrade_min"]:
         return "upgrade"
     return "replace"
 
 
+# ---------------------------------------------------------------------------
+# VONIS 2 SUMBU — Skor Spek (kapasitas optimal) × Skor Beban (kenyataan lapangan)
+#   Memisahkan "secara hardware layak?" dari "nyatanya kewalahan?". Berguna untuk
+#   membongkar perkiraan peran yang meleset:
+#     - spek layak TAPI beban berat  -> kerjaan lebih berat dari dugaan (upgrade)
+#     - spek kurang TAPI beban ringan -> masih nyaman dipakai (jangan buru ganti)
+#   Ambang biner pakai status_eligible_min (sama dgn "Layak") untuk kedua sumbu.
+#   Tidak menghitung ulang skor; murni interpretasi dari score_spec & score_load.
+# ---------------------------------------------------------------------------
+def two_axis_verdict(score_spec, score_load, settings=None):
+    """Kembalikan vonis gabungan 2 sumbu (dict siap-tampil) atau None.
+
+    Return {
+      spec_ok, load_ok: bool,
+      quadrant: 'fit'|'overloaded'|'oversized'|'poor',
+      tone: 'good'|'warn'|'bad',
+      headline: str,         # kalimat vonis gabungan
+    }
+    None bila salah satu skor belum tersedia.
+    """
+    if score_spec is None or score_load is None:
+        return None
+    s = settings or scoring_config.get_settings()
+    ok = s["status_eligible_min"]
+    spec_ok = score_spec >= ok
+    load_ok = score_load >= ok
+
+    if spec_ok and load_ok:
+        quadrant, tone = "fit", "good"
+        headline = ("Layak — spek memadai untuk perannya dan beban kerja nyata "
+                    "masih ringan.")
+    elif spec_ok and not load_ok:
+        quadrant, tone = "overloaded", "warn"
+        headline = ("Secara spek layak, tetapi beban kerja nyata BERAT — kemungkinan "
+                    "tugasnya lebih berat dari perkiraan peran. Pertimbangkan upgrade.")
+    elif not spec_ok and load_ok:
+        quadrant, tone = "oversized", "warn"
+        headline = ("Secara spek di bawah standar peran, tetapi nyatanya beban "
+                    "ringan — masih nyaman dipakai, penggantian tidak mendesak.")
+    else:
+        quadrant, tone = "poor", "bad"
+        headline = ("Spek di bawah standar peran DAN beban nyata berat — "
+                    "prioritas upgrade/penggantian.")
+
+    return {
+        "spec_ok": spec_ok, "load_ok": load_ok,
+        "quadrant": quadrant, "tone": tone, "headline": headline,
+    }
+
+
 def score_submission(sub: dict, current_year: int) -> dict:
     """Hitung skor lengkap 1 submission. Return dict siap simpan ke DB."""
-    group = sub.get("work_group") if sub.get("work_group") in PROFILES else DEFAULT_PROFILE
-    profile = PROFILES[group]
-    weights = WEIGHTS_MANAGEMENT if group == "management" else WEIGHTS_DEFAULT
+    profiles = scoring_config.get_profiles()
+    weights_map = scoring_config.get_weights()
+    settings = scoring_config.get_settings()
+    group = sub.get("work_group") if sub.get("work_group") in profiles else DEFAULT_PROFILE
+    profile = profiles.get(group) or profiles[DEFAULT_PROFILE]
+    weights = (weights_map.get(group) or weights_map.get(DEFAULT_PROFILE)
+               or {"cpu": 0.35, "ram": 0.30, "storage": 0.20, "battery": 0.15})
 
     # Resolusi PassMark CPU: pakai nilai numerik bila sudah ada di submission;
     # bila tidak, lookup dari tabel cpu_benchmarks via cpu_passmark(). Bila tetap
@@ -334,9 +436,9 @@ def score_submission(sub: dict, current_year: int) -> dict:
 
     spec, comp = score_spec(sub, profile, weights)
     load = score_load(sub, profile)
-    total = round(0.7 * spec + 0.3 * load)
+    total = round(settings["blend_spec"] * spec + settings["blend_load"] * load)
 
-    status = status_from_total(total)
+    status = status_from_total(total, settings)
     reasons = []
 
     ram_gb = _num(sub.get("ram_gb")) or 0
@@ -369,7 +471,7 @@ def score_submission(sub: dict, current_year: int) -> dict:
     # §4c — catatan komponen (flag terpisah, tidak mengubah status).
     if comp["battery_health"] is not None and comp["battery_health"] < 60:
         reasons.append(
-            f"Baterai sehat {round(comp['battery_health'])}% — pertimbangkan ganti baterai"
+            f"Kesehatan baterai {round(comp['battery_health'])}% — pertimbangkan ganti baterai"
         )
 
     # §9 (D1) — kesehatan disk rendah: flag perawatan, tidak memaksa status.
@@ -388,18 +490,46 @@ def score_submission(sub: dict, current_year: int) -> dict:
         )
 
     # §9 (D3) — kesiapan Windows 11 (indikasi): flag + rekomendasi.
+    # Disembunyikan bila OS SUDAH Windows 11 (flag tak relevan; mencegah false
+    # negative dari collector tanpa hak admin yang gagal baca TPM/Secure Boot).
     win11_ready = sub.get("win11_ready")
-    if win11_ready is not None and str(win11_ready) == "0":
+    if (win11_ready is not None and str(win11_ready) == "0"
+            and not _is_windows11(sub.get("os_name"))):
         blockers = (sub.get("win11_blockers") or "").strip() or "syarat tidak terpenuhi"
         reasons.append(
             f"Belum memenuhi syarat Windows 11 (indikasi): {blockers}"
         )
 
+    # §3c — vonis 2 sumbu (spek vs beban nyata): bila spek & beban tidak sejalan,
+    # tambahkan alasan yang membongkar perkiraan peran. Tidak memaksa status —
+    # beban nyata sudah ikut menarik Skor Total lewat score_load (blend §0).
+    verdict = two_axis_verdict(spec, load, settings)
+    if verdict and verdict["quadrant"] in ("overloaded", "oversized"):
+        cpu_use = _num(sub.get("cpu_usage_pct"))
+        ram_use = _num(sub.get("ram_usage_pct"))
+        bits = []
+        if cpu_use is not None:
+            bits.append(f"CPU {round(cpu_use)}%")
+        if ram_use is not None:
+            bits.append(f"RAM {round(ram_use)}%")
+        snap = f" ({', '.join(bits)} saat dicek)" if bits else ""
+        if verdict["quadrant"] == "overloaded":
+            reasons.append(
+                f"Secara spek memadai, tetapi beban kerja nyata berat{snap} — "
+                f"kemungkinan lebih berat dari perkiraan peran {group}; "
+                f"pertimbangkan upgrade"
+            )
+        else:  # oversized
+            reasons.append(
+                f"Spek di bawah standar peran {group}, namun beban nyata ringan{snap} "
+                f"— penggantian tidak mendesak"
+            )
+
     # §5 — EOL.
     eol_year = None
     purchase_year = _num(sub.get("purchase_year"))
     if purchase_year:
-        lifespan = BASE_LIFESPAN_YEARS
+        lifespan = int(round(settings["base_lifespan_years"]))
         if spec >= 80:
             lifespan += 1
         if spec < 55:
@@ -441,7 +571,7 @@ def _group_display(sub):
     wg = sub.get("work_group")
     if wg == "other" and (sub.get("work_group_other") or "").strip():
         return sub["work_group_other"].strip()
-    return WORK_GROUP_DISPLAY.get(wg, wg or "-")
+    return scoring_config.get_labels().get(wg, wg or "-")
 
 
 def build_insights(sub: dict, current_year: int = None) -> dict:
@@ -450,8 +580,9 @@ def build_insights(sub: dict, current_year: int = None) -> dict:
          eol_text}
     tone ∈ {'good','warn','bad','neutral'}.
     """
-    group = sub.get("work_group") if sub.get("work_group") in PROFILES else DEFAULT_PROFILE
-    profile = PROFILES[group]
+    profiles = scoring_config.get_profiles()
+    group = sub.get("work_group") if sub.get("work_group") in profiles else DEFAULT_PROFILE
+    profile = profiles.get(group) or profiles[DEFAULT_PROFILE]
     grp = _group_display(sub)
     status = sub.get("status")
 
@@ -563,7 +694,12 @@ def build_insights(sub: dict, current_year: int = None) -> dict:
     os_is_windows = "windows" in (sub.get("os_name") or "").lower()
     win11_ready = sub.get("win11_ready")
     win11_blockers = (sub.get("win11_blockers") or "").strip()
-    if win11_ready is None:
+    if _is_windows11(sub.get("os_name")):
+        # OS sudah Windows 11 -> flag kesiapan tak relevan (cegah false negative
+        # dari collector tanpa hak admin yang gagal baca TPM/Secure Boot).
+        components.append({"label": "Windows 11", "tone": "good",
+            "text": "Sudah menjalankan Windows 11."})
+    elif win11_ready is None:
         # Tampilkan netral hanya bila memang Windows atau OS tak jelas;
         # untuk OS jelas non-Windows, lewati komponen ini.
         if os_is_windows or not (sub.get("os_name") or "").strip():
@@ -605,14 +741,29 @@ def build_insights(sub: dict, current_year: int = None) -> dict:
     # — Beban RAM saat pengecekan —
     pct = _num(sub.get("ram_usage_pct"))
     if pct is None:
-        components.append({"label": "Beban", "tone": "neutral", "text": "Beban RAM saat pengecekan tidak tercatat."})
+        components.append({"label": "Beban RAM", "tone": "neutral", "text": "Beban RAM saat pengecekan tidak tercatat."})
     elif pct <= 60:
-        components.append({"label": "Beban", "tone": "good", "text": f"Beban RAM saat dicek ringan ({round(pct)}%)."})
+        components.append({"label": "Beban RAM", "tone": "good", "text": f"Beban RAM saat dicek ringan ({round(pct)}%)."})
     elif pct <= 80:
-        components.append({"label": "Beban", "tone": "warn", "text": f"Beban RAM saat dicek sedang ({round(pct)}%)."})
+        components.append({"label": "Beban RAM", "tone": "warn", "text": f"Beban RAM saat dicek sedang ({round(pct)}%)."})
     else:
-        components.append({"label": "Beban", "tone": "bad",
+        components.append({"label": "Beban RAM", "tone": "bad",
             "text": f"Beban RAM saat dicek tinggi ({round(pct)}%) — multitasking terasa berat."})
+
+    # — Beban CPU saat pengecekan (rata-rata ~3s) —
+    cpu_pct = _num(sub.get("cpu_usage_pct"))
+    if cpu_pct is None:
+        components.append({"label": "Beban CPU", "tone": "neutral",
+            "text": "Beban CPU saat pengecekan tidak tercatat."})
+    elif cpu_pct <= 60:
+        components.append({"label": "Beban CPU", "tone": "good",
+            "text": f"Beban CPU saat dicek ringan ({round(cpu_pct)}%)."})
+    elif cpu_pct <= 80:
+        components.append({"label": "Beban CPU", "tone": "warn",
+            "text": f"Beban CPU saat dicek sedang ({round(cpu_pct)}%)."})
+    else:
+        components.append({"label": "Beban CPU", "tone": "bad",
+            "text": f"Beban CPU saat dicek tinggi ({round(cpu_pct)}%) — prosesor sering mentok."})
 
     # — Penyimpanan OS hampir penuh —
     os_free = _num(sub.get("os_free_gb"))
@@ -651,12 +802,93 @@ def build_insights(sub: dict, current_year: int = None) -> dict:
     elif eol_year:
         eol_text = f"Estimasi layak dipakai hingga sekitar {eol_year}."
 
+    # — Vonis 2 sumbu (spek vs beban nyata) untuk ditampilkan menonjol —
+    two_axis = two_axis_verdict(sub.get("score_spec"), sub.get("score_load"))
+
     return {
         "verdict": verdict,
         "tone": tone,
         "components": components,
         "recommendations": recommendations,
         "eol_text": eol_text,
+        "two_axis": two_axis,
+    }
+
+
+# ---------------------------------------------------------------------------
+# SARAN PENEMPATAN ULANG (rightsizing) — "laptop ini kurang untuk Keuangan,
+# tapi cocok untuk Administrasi". Menilai spek laptop terhadap SEMUA kelompok
+# kerja, lalu menyarankan kelompok yang paling pas. Tidak mengubah data; hanya
+# membaca spek + cpu_passmark yang sudah tersimpan pada submission.
+# ---------------------------------------------------------------------------
+def _total_for_profile(sub, profile, weights, settings):
+    spec, _ = score_spec(sub, profile, weights)
+    load = score_load(sub, profile)
+    total = round(settings["blend_spec"] * spec + settings["blend_load"] * load)
+    return total
+
+
+def suggest_placement(sub, current_year=None):
+    """Saran penempatan ulang berbasis spek vs kebutuhan tiap kelompok.
+
+    Kembalikan dict:
+      {
+        current:  {"key", "label", "status", "total"},
+        eligible: [ {"key","label","total","cpu_ideal"} ... ]  # kelompok yg 'Layak'
+        suggestion: {"key","label","total"} | None  # best-fit selain kelompok kini
+        text: str | None  # kalimat siap-tampil
+      }
+    `eligible` diurut dari kebutuhan TERBERAT yang masih layak (utilisasi terbaik).
+    """
+    profiles = get_profiles()
+    weights_map = get_weights()
+    settings = get_settings()
+    labels = scoring_config.get_labels()
+
+    cur_key = sub.get("work_group") if sub.get("work_group") in profiles else DEFAULT_PROFILE
+    cur_profile = profiles.get(cur_key) or profiles[DEFAULT_PROFILE]
+    cur_weights = (weights_map.get(cur_key) or weights_map.get(DEFAULT_PROFILE)
+                   or {"cpu": 0.35, "ram": 0.30, "storage": 0.20, "battery": 0.15})
+    cur_total = _total_for_profile(sub, cur_profile, cur_weights, settings)
+    cur_status = status_from_total(cur_total, settings)
+
+    # Nilai laptop terhadap tiap kelompok (kecuali 'other' = teks bebas).
+    eligible = []
+    for key, prof in profiles.items():
+        if key == "other":
+            continue
+        w = weights_map.get(key) or cur_weights
+        total = _total_for_profile(sub, prof, w, settings)
+        if status_from_total(total, settings) == "eligible":
+            eligible.append({
+                "key": key, "label": labels.get(key, key), "total": total,
+                "cpu_ideal": prof.get("cpu_ideal", 0),
+            })
+    # Urut: kebutuhan terberat (cpu_ideal) lebih dulu -> utilisasi maksimal.
+    eligible.sort(key=lambda e: (e["cpu_ideal"], e["total"]), reverse=True)
+
+    # Best-fit = kelompok layak yang BUKAN kelompok sekarang.
+    suggestion = next((e for e in eligible if e["key"] != cur_key), None)
+
+    cur_label = labels.get(cur_key, cur_key)
+    text = None
+    if cur_status == "eligible":
+        # Sudah pas untuk perannya. Bila ada kelompok lebih berat yang juga layak,
+        # tak perlu disarankan pindah (sudah cukup); biarkan text None.
+        text = None
+    elif suggestion:
+        text = (f"Spek kurang untuk {cur_label}, tetapi cocok untuk "
+                f"{suggestion['label']} — pertimbangkan pindah tangan.")
+    else:
+        text = (f"Spek di bawah kebutuhan {cur_label} dan kelompok lain — "
+                f"kandidat peremajaan/penggantian.")
+
+    return {
+        "current": {"key": cur_key, "label": cur_label,
+                    "status": cur_status, "total": cur_total},
+        "eligible": eligible,
+        "suggestion": suggestion,
+        "text": text,
     }
 
 
@@ -764,3 +996,34 @@ if __name__ == "__main__":
         assert need in labels, (need, labels)
     assert any("Tambah RAM hingga 16GB" in r for r in ins["recommendations"]), ins["recommendations"]
     print("OK — D4 build_insights: komponen disk/OS/Win11/headroom & rekomendasi RAM hadir.")
+
+    # --- Self-test BARU (2 sumbu: spek vs beban nyata) ---
+
+    # L1 — cpu_usage_pct kosong tidak mengubah Skor Beban contoh §7 (tetap 89).
+    base_cpu = dict(example)
+    assert "cpu_usage_pct" not in base_cpu
+    r_nocpu = score_submission(base_cpu, current_year=2026)
+    assert r_nocpu["score_load"] == 89, r_nocpu["score_load"]
+
+    # L2 — CPU terpakai tinggi MENURUNKAN Skor Beban (ikut tekanan, §3a).
+    hi_cpu = dict(example); hi_cpu["cpu_usage_pct"] = 95
+    r_hicpu = score_submission(hi_cpu, current_year=2026)
+    assert r_hicpu["score_load"] < 89, r_hicpu["score_load"]
+    print("OK — L1/L2 beban CPU: netral bila kosong, turunkan Skor Beban bila tinggi.")
+
+    # L3 — vonis 2 sumbu: spek layak + beban berat -> 'overloaded' + reason upgrade.
+    overload = dict(example)
+    overload["ram_usage_pct"] = 95; overload["cpu_usage_pct"] = 96
+    r_over = score_submission(overload, current_year=2026)
+    v_over = two_axis_verdict(r_over["score_spec"], r_over["score_load"])
+    assert v_over and v_over["quadrant"] == "overloaded", v_over
+    assert any("beban kerja nyata berat" in r.lower() for r in r_over["status_reasons"]), r_over
+    print("OK — L3 vonis: spek layak tapi beban berat -> overloaded + alasan upgrade.")
+
+    # L4 — vonis 2 sumbu: spek kurang + beban ringan -> 'oversized'.
+    v_under = two_axis_verdict(40, 90)
+    assert v_under["quadrant"] == "oversized", v_under
+    v_fit = two_axis_verdict(85, 90); assert v_fit["quadrant"] == "fit", v_fit
+    v_poor = two_axis_verdict(40, 30); assert v_poor["quadrant"] == "poor", v_poor
+    assert two_axis_verdict(None, 90) is None
+    print("OK — L4 vonis: keempat kuadran (fit/overloaded/oversized/poor) benar.")

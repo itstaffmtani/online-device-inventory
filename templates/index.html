@@ -101,13 +101,9 @@
                 class="w-full px-4 py-3 rounded-xl border border-slate-200 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
               >
                 <option value="">— Pilih kelompok penggunaan laptop —</option>
-                <option value="field">Lapangan / Mobilitas</option>
-                <option value="admin">Administrasi / Operasional</option>
-                <option value="finance">Keuangan</option>
-                <option value="data_processing">Pengolahan Data</option>
-                <option value="management">Manajemen / Manajerial</option>
-                <option value="it">IT / Development</option>
-                <option value="other">Lainnya…</option>
+                {% for g in work_groups %}
+                <option value="{{ g.key }}">{{ "Lainnya…" if g.key == "other" else g.label }}</option>
+                {% endfor %}
               </select>
               <input
                 type="text"
@@ -641,14 +637,10 @@
         upgrade: "Perlu Upgrade",
         replace: "Sebaiknya Ganti",
       };
+      // Label kelompok kerja — data-driven dari server (tabel work_groups).
       const WORK_GROUP_LABEL = {
-        field: "Lapangan / Mobilitas",
-        admin: "Administrasi / Operasional",
-        finance: "Keuangan",
-        data_processing: "Pengolahan Data",
-        management: "Manajemen / Manajerial",
-        it: "IT / Development",
-        other: "Lainnya",
+        {% for g in work_groups %}{{ g.key | tojson }}: {{ g.label | tojson }},
+        {% endfor %}
       };
 
       // Tampilkan hint bila tak ada spek otomatis terdeteksi, dan tandai

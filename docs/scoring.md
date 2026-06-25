@@ -1,8 +1,15 @@
 # Brief Aturan Penilaian Kelayakan (Scoring)
 
-Dokumen ini adalah **sumber kebenaran untuk manusia**. Implementasi di
-`scoring.py` harus mengikuti angka di sini. Semua ambang sengaja ditaruh sebagai
-konstanta agar mudah dikalibrasi setelah lihat data nyata.
+Dokumen ini adalah **sumber kebenaran untuk manusia** (rumus & makna).
+
+> **PENTING (perubahan):** angka parameter (profil per kelompok, bobot komponen,
+> ambang status, masa pakai EOL, blend total) kini **DATA-DRIVEN**: tersimpan di
+> DB (`work_groups` + `scoring_settings`), bukan lagi konstanta mati. Admin
+> mengubahnya lewat **UI `/admin/skoring`**. Nilai **DEFAULT/seed** (identik
+> dengan konstanta lama di tabel di bawah) ada di `scoring_config.py`. `scoring.py`
+> membaca dari DB dan otomatis fallback ke default bila tabel belum ada.
+> Setelah mengubah parameter, jalankan **"Hitung ulang semua"** agar skor lama
+> ikut diperbarui.
 
 Dasar acuan beban kerja per kelompok = PDF *"Rekomendasi Spesifikasi Laptop
 Berdasarkan Kelompok Karyawan"* (Tim IT MTani, Juni 2026).
@@ -12,7 +19,7 @@ Berdasarkan Kelompok Karyawan"* (Tim IT MTani, Juni 2026).
 ## 0. Keluaran yang dihasilkan
 Untuk tiap laptop (submission terbaru):
 - **Skor Spek** (0-100) — kualitas hardware terhadap kebutuhan perannya.
-- **Skor Beban** (0-100) — ketahanan terhadap beban kerja nyata (RAM pressure).
+- **Skor Beban** (0-100) — ketahanan terhadap beban kerja nyata (tekanan RAM + CPU terpakai).
 - **Skor Total** (0-100) — headline = `round(0.7 * Skor Spek + 0.3 * Skor Beban)`.
 - **Status** — `Layak` / `Upgrade` / `Ganti` (+ daftar alasan).
 - **Estimasi Tahun Pensiun** (EOL year).
@@ -98,16 +105,33 @@ Skor Spek = Σ(poin_komponen * bobot) / Σ(bobot komponen yang dipakai)
 ---
 
 ## 3. Skor Beban (0-100) — "layak secara load"
-Mengukur apakah laptop sanggup menahan beban kerja nyata. Dua faktor:
+Mengukur apakah laptop sanggup menahan beban kerja nyata. Dua faktor: **tekanan
+pemakaian nyata** (RAM + CPU terpakai) dan **kecukupan RAM** terhadap peran.
 
-### 3a. Tekanan RAM (snapshot `ram_usage_pct`)
+### 3a. Tekanan pemakaian (snapshot `ram_usage_pct` + `cpu_usage_pct`)
+Tekanan RAM (`ram_usage_pct`):
 | ram_usage_pct saat capture | Poin tekanan |
 |---|---:|
 | ≤ 60% | 100 |
 | 60–80% | 100 → 70 (linear) |
 | 80–90% | 70 → 40 (linear) |
 | > 90% | 40 → 0 (linear, mepet penuh) |
-Bila `ram_usage_pct` kosong → netral 100.
+
+Tekanan CPU (`cpu_usage_pct`, rata-rata ~3 detik — CPU wajar melonjak sesaat,
+jadi ambangnya sedikit lebih longgar):
+| cpu_usage_pct saat capture | Poin tekanan |
+|---|---:|
+| ≤ 60% | 100 |
+| 60–80% | 100 → 70 (linear) |
+| 80–92% | 70 → 40 (linear) |
+| > 92% | 40 → 0 (linear) |
+
+```
+poin_tekanan = rata-rata dari sinyal yang ADA datanya (RAM dan/atau CPU)
+```
+Bila RAM **dan** CPU kosong → netral 100. Bila hanya salah satu → pakai yang ada
+(submission lama tanpa `cpu_usage_pct` tetap memakai tekanan RAM saja → Skor Beban
+tidak berubah).
 
 ### 3b. Kecukupan RAM terhadap peran
 ```
@@ -121,7 +145,24 @@ Skor Beban = round(0.5 * poin_tekanan + 0.5 * ram_adequacy)
 
 > Catatan kejujuran: snapshot sekali itu sinyal lemah. Ia menurunkan skor bila
 > jelas mepet, tapi tidak dijadikan satu-satunya penentu. Penentu utama tetap
-> spek vs kebutuhan peran.
+> spek vs kebutuhan peran. `cpu_usage_pct` diisi collector versi baru; submission
+> lama **tidak perlu diisi ulang** — bagian CPU dibiarkan netral.
+
+### 3c. Vonis 2 sumbu — Skor Spek × Skor Beban
+Profil kebutuhan per peran (§1) hanyalah **perkiraan**. Beban nyata bisa
+membongkar perkiraan yang meleset. Karena itu kedua skor dibaca sebagai **dua
+sumbu** (`two_axis_verdict()` di `scoring.py`), ambang biner = `status_eligible_min`:
+
+| | Beban ringan (Skor Beban ≥ ambang) | Beban berat (Skor Beban < ambang) |
+|---|---|---|
+| **Spek layak** | ✅ `fit` — memadai & santai | ⚠️ `overloaded` — di atas kertas layak tapi nyatanya berat → tugas lebih berat dari perkiraan peran, pertimbangkan **upgrade** |
+| **Spek kurang** | 🟡 `oversized` — di bawah standar tapi nyatanya ringan → **penggantian tidak mendesak** | ❌ `poor` — kurang & kewalahan → prioritas ganti |
+
+- Vonis ini **tidak** menghitung ulang skor. Beban nyata sudah ikut menarik Skor
+  Total lewat Skor Beban (blend §0), dan untuk kuadran `overloaded`/`oversized`
+  ditambahkan **alasan** ke `status_reasons` (menyebut CPU%/RAM% saat dicek).
+- Tampil di detail laptop & karyawan, halaman publik, dan kolom **"Spek vs Beban
+  Nyata"** pada export XLSX.
 
 ---
 
@@ -247,3 +288,40 @@ storage di §2c, tetapi tetap netral bila datanya tidak ada.)
   {max}GB"); neutral bila slot penuh / sudah mentok.
 - Rekomendasi actionable bila RAM di bawah ideal peran **dan** ada headroom:
   *"Tambah RAM hingga {ideal}GB — tersedia slot kosong"*.
+
+### 9e. Koreksi false-negative Windows 11
+Collector berjalan **tanpa hak Administrator** (cukup klik 2×), sehingga dulu
+deteksi TPM & Secure Boot gagal → semua laptop salah dikira "belum siap Win11".
+Diperbaiki:
+- **Secure Boot** dibaca dari registry `HKLM:\…\SecureBoot\State`
+  `UEFISecureBootEnabled` (bisa tanpa admin).
+- **TPM** bila tak terbaca (akses ditolak) → dibiarkan **tidak diketahui** (None),
+  bukan "Tidak ada". Bila TPM tak diketahui → `win11_ready` dibiarkan kosong
+  (tampil **netral**, bukan "belum memenuhi syarat").
+- App: bila `os_name` **sudah Windows 11**, flag/insight kesiapan Win11
+  disembunyikan (tak relevan) di scoring, insight, dashboard, dan tab Pengadaan.
+
+---
+
+## 10. Saran Penempatan Ulang (rightsizing)
+`suggest_placement(sub)` menilai spek laptop terhadap **semua** kelompok kerja,
+lalu menyarankan kelompok yang paling pas — *"laptop ini kurang untuk Keuangan,
+tetapi cocok untuk Administrasi"*.
+- Untuk tiap kelompok (kecuali `other`), hitung Skor Total laptop memakai profil
+  kelompok itu; kumpulkan yang berstatus **Layak** (`eligible`).
+- Diurut dari kebutuhan **terberat** yang masih layak (utilisasi terbaik).
+- `suggestion` = kelompok layak terberat yang **bukan** kelompok sekarang.
+- Teks: bila kelompok sekarang sudah layak → tak ada saran; bila kurang tapi ada
+  kelompok lain yang cocok → sarankan pindah; bila tak layak di mana pun →
+  *"kandidat peremajaan/penggantian"*.
+- Tampil di: detail laptop & karyawan (admin), kolom indikator dashboard, dan
+  kolom **"Saran Penempatan"** pada export XLSX.
+
+---
+
+## 11. Catatan kelompok kerja (data-driven)
+Kelompok kini disimpan di tabel `work_groups` (seed di `scoring_config.py`):
+6 kelompok asli + **marketing**, **design**, **hr** (placeholder, kalibrasi via
+UI) + `other`. Admin dapat menambah/menonaktifkan kelompok & mengubah profil
+lewat `/admin/skoring`. Submission baru otomatis pakai parameter terbaru; data
+lama diperbarui via tombol **"Hitung ulang semua"**.

@@ -154,6 +154,27 @@ try {
     }
 } catch {}
 
+# --- SNAPSHOT beban CPU saat ini (rata-rata ~3 sampel) ----------------------
+# Pakai kelas perf PercentProcessorTime (TIDAK terlokalisasi, tanpa admin).
+# Win32_PerfFormattedData sudah memberi nilai siap-pakai pada sampel pertama,
+# tapi kita ambil 3 sampel berjeda agar lonjakan sesaat tidak menipu.
+try {
+    $cpuSamples = @()
+    for ($i = 0; $i -lt 3; $i++) {
+        $perf = Get-CimInstance Win32_PerfFormattedData_PerfOS_Processor -ErrorAction Stop |
+            Where-Object { $_.Name -eq "_Total" } | Select-Object -First 1
+        if ($perf -and $null -ne $perf.PercentProcessorTime) {
+            $cpuSamples += [double]$perf.PercentProcessorTime
+        }
+        Start-Sleep -Milliseconds 800
+    }
+    if ($cpuSamples.Count -gt 0) {
+        $cpuAvg = [math]::Round(($cpuSamples | Measure-Object -Average).Average)
+        # cpu_usage_pct boleh 0; kirim apa adanya (jangan lewat Set-Param yg buang "0").
+        $params["cpu_usage_pct"] = $cpuAvg
+    }
+} catch {}
+
 # --- Disk fisik: pisahkan SSD vs HDD, deteksi NVMe/SATA ---------------------
 try {
     $disks = Get-PhysicalDisk -ErrorAction Stop
@@ -323,29 +344,41 @@ try {
 } catch {}
 
 # --- TPM: versi spesifikasi --------------------------------------------------
+# CATATAN: query Win32_Tpm BUTUH hak Administrator. Collector ini sengaja jalan
+# TANPA elevasi (cukup klik 2x), jadi tanpa admin kita TIDAK bisa pastikan TPM.
+# Maka: bila terbaca -> isi versinya; bila akses ditolak/tak terbaca -> biarkan
+# KOSONG (tidak diketahui), JANGAN tulis "Tidak ada" (itu false negative yang
+# membuat semua laptop dikira belum siap Windows 11).
+$tpmKnown = $false
 try {
     $tpm = Get-CimInstance -Namespace "root/cimv2/security/microsofttpm" `
         -ClassName Win32_Tpm -ErrorAction Stop | Select-Object -First 1
     if ($tpm -and $tpm.SpecVersion) {
         # SpecVersion mis. "2.0, 0, 1.38" -> ambil angka pertama sebelum koma
         $ver = ("$($tpm.SpecVersion)" -split ",")[0].Trim()
-        if ($ver) { Set-Param "tpm_version" $ver }
-    } else {
-        Set-Param "tpm_version" "Tidak ada"
+        if ($ver) { Set-Param "tpm_version" $ver; $tpmKnown = $true }
+    } elseif ($tpm) {
+        # Objek TPM ada tapi tanpa versi -> benar-benar tidak ada/dinonaktifkan.
+        Set-Param "tpm_version" "Tidak ada"; $tpmKnown = $true
     }
 } catch {
-    # Namespace tak ada / TPM tak tersedia
-    Set-Param "tpm_version" "Tidak ada"
+    # Akses ditolak (tanpa admin) atau namespace tak ada -> TIDAK diketahui.
+    # Biarkan tpm_version kosong; win11_ready akan dibiarkan "tak terdeteksi".
 }
 
 # --- Secure Boot -------------------------------------------------------------
-# Confirm-SecureBootUEFI: $true/$false di sistem UEFI; lempar error di BIOS legacy.
+# Confirm-SecureBootUEFI BUTUH admin -> dihindari. Sebagai gantinya baca registry
+# (bisa TANPA admin): UEFISecureBootEnabled = 1 berarti Secure Boot aktif.
+# Bila key tak ada -> sistem BIOS legacy/tak mendukung -> 0. Bila gagal baca
+# total -> biarkan tidak diketahui (None).
 $secureBoot = $null
 try {
-    $sb = Confirm-SecureBootUEFI -ErrorAction Stop
-    $secureBoot = if ($sb) { 1 } else { 0 }
+    $sbProp = Get-ItemProperty `
+        -Path "HKLM:\SYSTEM\CurrentControlSet\Control\SecureBoot\State" `
+        -Name "UEFISecureBootEnabled" -ErrorAction Stop
+    $secureBoot = if ([int]$sbProp.UEFISecureBootEnabled -eq 1) { 1 } else { 0 }
 } catch {
-    # BIOS legacy / tidak mendukung -> anggap tidak aktif
+    # Key tidak ada -> kemungkinan besar BIOS legacy (Secure Boot tak tersedia).
     $secureBoot = 0
 }
 if ($null -ne $secureBoot) { $params["secure_boot"] = $secureBoot }
@@ -353,27 +386,35 @@ if ($null -ne $secureBoot) { $params["secure_boot"] = $secureBoot }
 # --- Indikasi kesiapan Windows 11 -------------------------------------------
 # Syarat (INDIKASI, bukan cek CPU allowlist penuh):
 #   TPM mulai "2.0" AND secure_boot=1 AND ram_gb>=4 AND (ssd_gb+hdd_gb)>=64.
+# Bila sinyal kunci (TPM) TIDAK diketahui karena tanpa admin, JANGAN simpulkan
+# "tidak siap" (false negative). Lewati: biarkan win11_ready kosong (= tak
+# terdeteksi) sehingga di dashboard tampil netral, bukan "belum memenuhi syarat".
 try {
-    $blockers = @()
-
-    $tpmVal = if ($params.Contains("tpm_version")) { "$($params['tpm_version'])" } else { "" }
-    if (-not $tpmVal.StartsWith("2.0")) { $blockers += "TPM bukan 2.0" }
-
-    if ($secureBoot -ne 1) { $blockers += "Secure Boot tidak aktif" }
-
-    $ramGb = if ($params.Contains("ram_gb")) { [double]$params["ram_gb"] } else { 0 }
-    if ($ramGb -lt 4) { $blockers += "RAM <4GB" }
-
-    $storGb = 0
-    if ($params.Contains("ssd_gb")) { $storGb += [double]$params["ssd_gb"] }
-    if ($params.Contains("hdd_gb")) { $storGb += [double]$params["hdd_gb"] }
-    if ($storGb -lt 64) { $blockers += "Penyimpanan <64GB" }
-
-    if ($blockers.Count -eq 0) {
-        $params["win11_ready"] = 1
+    if (-not $tpmKnown) {
+        # TPM tak terbaca (butuh admin) -> kesiapan Win11 tak bisa dipastikan.
+        # win11_ready dibiarkan kosong.
     } else {
-        $params["win11_ready"] = 0
-        Set-Param "win11_blockers" ($blockers -join "; ")
+        $blockers = @()
+
+        $tpmVal = if ($params.Contains("tpm_version")) { "$($params['tpm_version'])" } else { "" }
+        if (-not $tpmVal.StartsWith("2.0")) { $blockers += "TPM bukan 2.0" }
+
+        if ($secureBoot -ne 1) { $blockers += "Secure Boot tidak aktif" }
+
+        $ramGb = if ($params.Contains("ram_gb")) { [double]$params["ram_gb"] } else { 0 }
+        if ($ramGb -lt 4) { $blockers += "RAM <4GB" }
+
+        $storGb = 0
+        if ($params.Contains("ssd_gb")) { $storGb += [double]$params["ssd_gb"] }
+        if ($params.Contains("hdd_gb")) { $storGb += [double]$params["hdd_gb"] }
+        if ($storGb -lt 64) { $blockers += "Penyimpanan <64GB" }
+
+        if ($blockers.Count -eq 0) {
+            $params["win11_ready"] = 1
+        } else {
+            $params["win11_ready"] = 0
+            Set-Param "win11_blockers" ($blockers -join "; ")
+        }
     }
 } catch {}
 

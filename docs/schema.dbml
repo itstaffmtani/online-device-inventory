@@ -136,6 +136,7 @@ Table submissions {
   cpu_arch          varchar
   cpu_speed_mhz     integer
   cpu_passmark      integer            [note: 'Skor PassMark hasil lookup cpu_benchmarks (cache)']
+  cpu_usage_pct     real               [note: 'SNAPSHOT beban CPU saat script jalan (rata-rata ~3s)']
 
   // — Spesifikasi: GPU —
   gpu               text               [note: 'Bisa lebih dari satu, dipisah koma']
@@ -217,7 +218,43 @@ Table cpu_benchmarks {
   Note: 'Pencocokan CPU terdeteksi -> cpu_key via normalisasi + fuzzy. Bila tak ketemu, scoring pakai fallback (lihat scoring.md).'
 }
 
+// ----------------------------------------------------------------------------
+// WORK_GROUPS — kelompok kerja + profil kebutuhan & bobot (DATA-DRIVEN).
+// Dulu di-hardcode di scoring.py (PROFILES/WEIGHTS) dan dikunci CHECK pada
+// submissions.work_group. Kini disimpan di DB agar admin bisa menambah kelompok
+// & mengkalibrasi angka lewat UI (/admin/skoring) TANPA ubah kode. Seed awal =
+// nilai lama (lihat scoring_config.py). CHECK pada submissions.work_group DILEPAS
+// (validasi pindah ke lapisan app).
+// ----------------------------------------------------------------------------
+Table work_groups {
+  key         varchar [pk, note: 'mis. field/admin/finance/marketing/design/hr/other']
+  label       varchar [not null, note: 'Nama tampilan (UI)']
+  cpu_floor   integer [not null, note: 'PassMark multi-thread minimum']
+  cpu_ideal   integer [not null, note: 'PassMark multi-thread ideal']
+  ram_min     integer [not null]
+  ram_ideal   integer [not null]
+  w_cpu       real    [not null, note: 'Bobot komponen CPU pada Skor Spek']
+  w_ram       real    [not null]
+  w_storage   real    [not null]
+  w_battery   real    [not null]
+  sort_order  integer [note: 'Urutan tampil di dropdown']
+  is_active   integer [note: '1=tampil di form publik, 0=disembunyikan']
+  is_builtin  integer [note: '1=bawaan (kelompok asli), 0=tambahan admin']
+}
+
+// ----------------------------------------------------------------------------
+// SCORING_SETTINGS — ambang global skoring (key/value), editable admin.
+//   status_eligible_min, status_upgrade_min  (ambang status, scoring.md §4a)
+//   base_lifespan_years                       (EOL, §5)
+//   blend_spec, blend_load                    (bobot Skor Total = 0.7/0.3, §0)
+// ----------------------------------------------------------------------------
+Table scoring_settings {
+  key   varchar [pk]
+  value real    [not null]
+}
+
 // Catatan: AUTENTIKASI ADMIN tidak pakai tabel — cukup 1 password bersama
 // dari environment variable (ADMIN_PASSWORD) + Flask session. Lihat architecture.md.
-// AMBANG/THRESHOLD per kelompok TIDAK disimpan di DB — ada di kode (config),
-// didokumentasikan di scoring.md agar mudah dikalibrasi.
+// AMBANG/THRESHOLD & profil kelompok kini DISIMPAN di DB (work_groups +
+// scoring_settings), di-seed dari nilai default di scoring_config.py, dan
+// didokumentasikan di scoring.md. Admin mengubahnya lewat /admin/skoring.

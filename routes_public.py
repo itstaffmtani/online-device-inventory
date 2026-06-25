@@ -18,14 +18,30 @@ from flask import (Blueprint, Response, current_app, jsonify, render_template,
                    request)
 
 import db
-from scoring import (PASSMARK_PER_THREAD, PROFILES, build_insights,
-                     cpu_passmark, score_submission)
+import scoring_config
+from scoring import (PASSMARK_PER_THREAD, build_insights,
+                     cpu_passmark, get_profiles, score_submission)
 
 public_bp = Blueprint("public", __name__)
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
-WORK_GROUPS = ["field", "admin", "finance", "data_processing", "management", "it", "other"]
+
+def _active_groups():
+    """Daftar kelompok kerja AKTIF (list dict key+label) untuk dropdown form.
+
+    Data-driven dari tabel work_groups (scoring_config). 'other' selalu disertakan
+    sebagai pilihan teks bebas.
+    """
+    return [{"key": g["key"], "label": g["label"]}
+            for g in scoring_config.all_groups(active_only=True)]
+
+
+def _valid_group_keys():
+    """Set key kelompok yang sah untuk validasi submit (termasuk 'other')."""
+    keys = {g["key"] for g in scoring_config.all_groups(active_only=True)}
+    keys.add("other")
+    return keys
 
 # Param URL/form (architecture.md)  ->  kolom DB submissions (schema.dbml).
 SPEC_MAP = {
@@ -37,6 +53,7 @@ SPEC_MAP = {
     "cpu_threads": "cpu_threads",
     "cpu_arch": "cpu_arch",
     "cpu_speed_mhz": "cpu_speed_mhz",
+    "cpu_usage_pct": "cpu_usage_pct",
     "gpu": "gpu",
     "ram_gb": "ram_gb",
     "ram_type": "ram_type",
@@ -68,7 +85,7 @@ SPEC_MAP = {
 # Kolom yang dipaksa integer / float saat simpan. (cpu_arch tetap teks.)
 _INT_COLS = {"cpu_cores", "cpu_threads", "cpu_speed_mhz", "ram_speed_mhz", "purchase_year",
              "ram_slots_total", "ram_slots_used", "secure_boot", "win11_ready"}
-_FLOAT_COLS = {"ram_gb", "ram_usage_pct", "ram_usage_gb", "ssd_gb", "hdd_gb",
+_FLOAT_COLS = {"ram_gb", "ram_usage_pct", "ram_usage_gb", "cpu_usage_pct", "ssd_gb", "hdd_gb",
                "os_total_gb", "os_free_gb", "battery_pct", "battery_wh_full", "battery_wh_design",
                "ram_max_gb", "disk_health_pct"}
 
@@ -122,7 +139,7 @@ def form():
             prefill[k] = val
     return render_template("index.html", prefill=prefill,
                            submit_token=current_app.config["SUBMIT_TOKEN"],
-                           work_groups=WORK_GROUPS)
+                           work_groups=_active_groups())
 
 
 @public_bp.route("/thank-you")
@@ -152,7 +169,7 @@ def public_detail(device_id):
             reasons = [latest["status_reasons"]]
     return render_template("public_detail.html", device=device, latest=latest,
                            insights=insights, reasons=reasons,
-                           profile=PROFILES.get(latest.get("work_group")) if latest else None)
+                           profile=get_profiles().get(latest.get("work_group")) if latest else None)
 
 
 # ---------------------------------------------------------------------------
@@ -173,7 +190,7 @@ def api_submit():
     work_group_other = (payload.get("work_group_other") or "").strip()
     if not holder_name:
         return jsonify(ok=False, error="Nama wajib diisi."), 400
-    if work_group not in WORK_GROUPS:
+    if work_group not in _valid_group_keys():
         return jsonify(ok=False, error="Kelompok kerja tidak valid."), 400
     if work_group == "other" and not work_group_other:
         return jsonify(ok=False, error="Tuliskan kelompok kerja pada pilihan Lainnya."), 400
@@ -246,8 +263,9 @@ def api_submit():
     # 7. Simpan submission.
     submission_id = db.insert_submission(sub)
 
-    profile_key = work_group if work_group in PROFILES else "admin"
-    profile_data = PROFILES[profile_key]
+    _profiles = get_profiles()
+    profile_key = work_group if work_group in _profiles else "admin"
+    profile_data = _profiles[profile_key]
     insights = build_insights(sub, current_year=datetime.now().year)
 
     return jsonify(

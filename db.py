@@ -22,6 +22,7 @@ import sqlite3
 
 from flask import g
 
+import scoring_config
 from config import config
 
 # ---------------------------------------------------------------------------
@@ -94,6 +95,7 @@ CREATE TABLE IF NOT EXISTS submissions (
     cpu_arch           TEXT,
     cpu_speed_mhz      INTEGER,
     cpu_passmark       INTEGER,
+    cpu_usage_pct      REAL,         -- snapshot beban CPU saat dicek (rata-rata ~3s)
 
     -- Spesifikasi: GPU
     gpu                TEXT,
@@ -175,6 +177,7 @@ _SUBMISSION_COLUMNS = [
     "work_group", "work_group_other", "laptop_status",
     "hostname", "mac_address", "serial_number", "asset_no",
     "cpu_model", "cpu_cores", "cpu_threads", "cpu_arch", "cpu_speed_mhz", "cpu_passmark",
+    "cpu_usage_pct",
     "gpu",
     "motherboard",
     "ram_gb", "ram_type", "ram_speed_mhz", "ram_usage_pct", "ram_usage_gb",
@@ -188,10 +191,80 @@ _SUBMISSION_COLUMNS = [
     "score_spec", "score_load", "score_total", "status", "status_reasons", "eol_year",
 ]
 
+# Definisi submissions TANPA CHECK pada work_group (untuk rebuild migrasi —
+# kelompok kerja kini DATA-DRIVEN di tabel work_groups, divalidasi di lapisan app).
+# Hanya CHECK work_group yang dilepas; CHECK enum lain (source/status/dll) tetap.
+# {T} = nama tabel (diisi saat rebuild). Daftar kolom WAJIB identik dgn SCHEMA.
+_SUBMISSIONS_NO_WG_CHECK = """
+CREATE TABLE {T} (
+    id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+    device_id          INTEGER NOT NULL REFERENCES devices(id),
+    employee_id        INTEGER REFERENCES employees(id),
+    submitted_at       TIMESTAMP NOT NULL,
+    source             TEXT CHECK (source IN ('windows_script','mac_script','linux_script','manual')),
+    holder_name        TEXT NOT NULL,
+    holder_position    TEXT,
+    holder_company     TEXT,
+    holder_location    TEXT,
+    work_group         TEXT NOT NULL,
+    work_group_other   TEXT,
+    laptop_status      TEXT CHECK (laptop_status IN ('office_inventory','personal')),
+    hostname           TEXT,
+    mac_address        TEXT,
+    serial_number      TEXT,
+    asset_no           TEXT,
+    cpu_model          TEXT,
+    cpu_cores          INTEGER,
+    cpu_threads        INTEGER,
+    cpu_arch           TEXT,
+    cpu_speed_mhz      INTEGER,
+    cpu_passmark       INTEGER,
+    cpu_usage_pct      REAL,
+    gpu                TEXT,
+    motherboard        TEXT,
+    ram_gb             REAL,
+    ram_type           TEXT,
+    ram_speed_mhz      INTEGER,
+    ram_usage_pct      REAL,
+    ram_usage_gb       REAL,
+    ram_slots_total    INTEGER,
+    ram_slots_used     INTEGER,
+    ram_max_gb         REAL,
+    ssd_gb             REAL,
+    ssd_type           TEXT,
+    hdd_gb             REAL,
+    disk_raw           TEXT,
+    os_total_gb        REAL,
+    os_free_gb         REAL,
+    disk_health_pct    REAL,
+    disk_health_raw    TEXT,
+    battery_pct        REAL,
+    battery_wh_full    REAL,
+    battery_wh_design  REAL,
+    battery_health_pct REAL,
+    os_name            TEXT,
+    tpm_version        TEXT,
+    secure_boot        INTEGER,
+    win11_ready        INTEGER,
+    win11_blockers     TEXT,
+    physical_condition TEXT CHECK (physical_condition IN ('good','fair','poor')),
+    accessories        TEXT,
+    purchase_year      INTEGER,
+    issues             TEXT,
+    score_spec         INTEGER,
+    score_load         INTEGER,
+    score_total        INTEGER,
+    status             TEXT CHECK (status IN ('eligible','upgrade','replace')),
+    status_reasons     TEXT,
+    eol_year           INTEGER
+)
+"""
+
 # Kolom baru submissions yang ditambahkan via migrasi aditif (ALTER ADD COLUMN).
 # Tiap entri: (nama_kolom, definisi_tipe SQL).
 _SUBMISSION_NEW_COLUMNS = [
     ("employee_id", "INTEGER REFERENCES employees(id)"),
+    ("cpu_usage_pct", "REAL"),
     ("motherboard", "TEXT"),
     ("ram_slots_total", "INTEGER"),
     ("ram_slots_used", "INTEGER"),
@@ -290,11 +363,93 @@ def init_db():
         )
         conn.commit()
 
+        # 4b. Tabel parameter skoring data-driven (work_groups + scoring_settings)
+        #     + seed DEFAULT (idempoten, tidak menimpa yang sudah diubah admin).
+        scoring_config.ensure_tables(conn)
+
+        # 4c. Lepas CHECK lama pada work_group agar kelompok kerja bisa dinamis.
+        #     Rebuild aman: salin semua baris -> verifikasi jumlah -> swap.
+        _rebuild_submissions_drop_wg_check(conn)
+
         # 5. Backfill employee_id dari holder_name + holder_company untuk
         #    submission lama yang belum punya ikatan karyawan.
         _backfill_employees(conn)
     finally:
         conn.close()
+
+
+def _rebuild_submissions_drop_wg_check(conn):
+    """Lepas CHECK (work_group IN ...) dari tabel submissions (SEKALI, idempoten).
+
+    SQLite tak bisa DROP CHECK langsung -> rebuild tabel. Sangat berhati-hati
+    karena DB produksi berisi data nyata:
+      1. Deteksi: hanya jalan bila CHECK work_group masih ada (idempoten).
+      2. Salin SEMUA kolom yang ada saat ini (interseksi old∩new) ke tabel baru.
+      3. VERIFIKASI jumlah baris old == new sebelum menghapus tabel lama.
+      4. Bila tidak cocok -> ROLLBACK & angkat error (file .bak dari init_db tetap aman).
+    """
+    row = conn.execute(
+        "SELECT sql FROM sqlite_master WHERE type='table' AND name='submissions'"
+    ).fetchone()
+    if not row or not row[0]:
+        return
+    norm = re.sub(r"\s+", " ", row[0])
+    if "CHECK (work_group IN" not in norm and "CHECK(work_group IN" not in norm:
+        return  # CHECK sudah tidak ada -> tidak perlu rebuild.
+
+    # Kolom yang akan disalin = kolom submissions saat ini ∩ kolom tabel baru.
+    old_cols = [r["name"] for r in
+                conn.execute("PRAGMA table_info(submissions)").fetchall()]
+    # Buat tabel baru lebih dulu untuk tahu kolomnya.
+    conn.execute("DROP TABLE IF EXISTS submissions_rebuild_tmp")
+    conn.execute(_SUBMISSIONS_NO_WG_CHECK.format(T="submissions_rebuild_tmp"))
+    new_cols = [r["name"] for r in
+                conn.execute("PRAGMA table_info(submissions_rebuild_tmp)").fetchall()]
+    cols = [c for c in old_cols if c in new_cols]
+    collist = ", ".join(cols)
+
+    old_count = conn.execute("SELECT COUNT(*) FROM submissions").fetchone()[0]
+
+    fk_was_on = conn.execute("PRAGMA foreign_keys").fetchone()[0]
+    conn.execute("PRAGMA foreign_keys = OFF")
+    try:
+        conn.execute("BEGIN")
+        conn.execute(
+            f"INSERT INTO submissions_rebuild_tmp ({collist}) "
+            f"SELECT {collist} FROM submissions"
+        )
+        new_count = conn.execute(
+            "SELECT COUNT(*) FROM submissions_rebuild_tmp"
+        ).fetchone()[0]
+        if new_count != old_count:
+            conn.execute("ROLLBACK")
+            conn.execute("DROP TABLE IF EXISTS submissions_rebuild_tmp")
+            raise RuntimeError(
+                f"Rebuild submissions dibatalkan: jumlah baris tidak cocok "
+                f"(lama={old_count}, baru={new_count}). Data lama tidak diubah."
+            )
+        conn.execute("DROP TABLE submissions")
+        conn.execute("ALTER TABLE submissions_rebuild_tmp RENAME TO submissions")
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_submissions_device_time "
+            "ON submissions (device_id, submitted_at)"
+        )
+        conn.execute("COMMIT")
+    except Exception:
+        # Pastikan tidak meninggalkan transaksi/tabel sementara yang menggantung.
+        try:
+            conn.execute("ROLLBACK")
+        except sqlite3.Error:
+            pass
+        try:
+            conn.execute("DROP TABLE IF EXISTS submissions_rebuild_tmp")
+            conn.commit()
+        except sqlite3.Error:
+            pass
+        raise
+    finally:
+        if fk_was_on:
+            conn.execute("PRAGMA foreign_keys = ON")
 
 
 def _backfill_employees(conn):
@@ -500,6 +655,42 @@ def insert_submission(data):
     )
     db.commit()
     return cur.lastrowid
+
+
+def get_submission(submission_id):
+    """Ambil 1 baris submission (dict) by id, atau None."""
+    db = get_db()
+    row = db.execute(
+        "SELECT * FROM submissions WHERE id = ?", (submission_id,)
+    ).fetchone()
+    return dict(row) if row else None
+
+
+def update_submission(submission_id, data):
+    """Perbarui kolom submission yang dikenal (dipakai fitur edit & recalc admin).
+
+    Hanya kolom dalam _SUBMISSION_COLUMNS yang diproses. Kolom yang TIDAK ada di
+    `data` tidak diubah. Mengembalikan jumlah baris tersentuh (0/1).
+    """
+    db = get_db()
+    cols = [c for c in _SUBMISSION_COLUMNS if c in data]
+    if not cols:
+        return 0
+    assignments = ", ".join(f"{c} = ?" for c in cols)
+    params = [data[c] for c in cols]
+    params.append(submission_id)
+    cur = db.execute(
+        f"UPDATE submissions SET {assignments} WHERE id = ?", params
+    )
+    db.commit()
+    return cur.rowcount
+
+
+def all_submissions():
+    """Semua baris submission (dict) — untuk hitung ulang skor massal."""
+    db = get_db()
+    rows = db.execute("SELECT * FROM submissions ORDER BY id").fetchall()
+    return [dict(r) for r in rows]
 
 
 def latest_per_device():

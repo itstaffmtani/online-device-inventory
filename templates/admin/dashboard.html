@@ -20,7 +20,15 @@
                 <p class="text-sm text-slate-500">Kondisi terbaru per laptop & karyawan (MTani)</p>
             </div>
         </div>
-        <div class="flex gap-2">
+        <div class="flex gap-2 flex-wrap">
+            <a href="{{ url_for('admin.scoring_page') }}" class="inline-flex items-center gap-1.5 border border-slate-200 bg-white text-slate-600 text-sm font-medium px-4 py-2 rounded-lg hover:bg-slate-50">
+                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="1.6" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M10.343 3.94c.09-.542.56-.94 1.11-.94h1.093c.55 0 1.02.398 1.11.94l.149.894c.07.424.384.764.78.93.398.164.855.142 1.205-.108l.737-.527a1.125 1.125 0 0 1 1.45.12l.773.774c.39.389.44 1.002.12 1.45l-.527.737c-.25.35-.272.806-.107 1.204.165.397.505.71.93.78l.893.15c.543.09.94.56.94 1.109v1.094c0 .55-.397 1.02-.94 1.11l-.894.149c-.424.07-.764.384-.93.78-.164.398-.142.855.108 1.205l.527.737c.32.448.27 1.06-.12 1.45l-.774.773a1.125 1.125 0 0 1-1.449.12l-.738-.527c-.35-.25-.806-.272-1.203-.107-.397.165-.71.505-.781.929l-.149.894c-.09.542-.56.94-1.11.94h-1.094c-.55 0-1.019-.398-1.11-.94l-.148-.894c-.071-.424-.384-.764-.781-.93-.398-.164-.854-.142-1.204.108l-.738.527c-.448.32-1.06.27-1.45-.12l-.773-.774a1.125 1.125 0 0 1-.12-1.45l.527-.737c.25-.35.273-.806.108-1.204-.165-.397-.505-.71-.93-.78l-.894-.15c-.542-.09-.94-.56-.94-1.109v-1.094c0-.55.398-1.02.94-1.11l.894-.149c.424-.07.765-.383.93-.78.165-.398.143-.855-.107-1.205l-.527-.737a1.125 1.125 0 0 1 .12-1.45l.773-.773a1.125 1.125 0 0 1 1.45-.12l.737.527c.35.25.807.272 1.204.107.397-.165.71-.505.78-.929l.15-.894Z"/><path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z"/></svg>
+                Parameter Skoring
+            </a>
+            <form method="POST" action="{{ url_for('admin.recalc_all') }}"
+                  onsubmit="return confirm('Hitung ulang skor SEMUA submission sesuai parameter terbaru?');">
+                <button class="inline-flex items-center gap-1.5 border border-slate-200 bg-white text-slate-600 text-sm font-medium px-4 py-2 rounded-lg hover:bg-slate-50">↻ Hitung ulang semua</button>
+            </form>
             <a href="{{ url_for('admin.export_xlsx') }}" class="inline-flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium px-4 py-2 rounded-lg">
                 <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="1.8" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3"/></svg>
                 Export XLSX
@@ -28,6 +36,12 @@
             <a href="{{ url_for('admin.logout') }}" class="border border-slate-200 text-slate-600 text-sm font-medium px-4 py-2 rounded-lg hover:bg-slate-100">Keluar</a>
         </div>
     </div>
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% for cat, msg in messages %}
+      <div class="mb-4 text-sm rounded-lg px-4 py-2.5 {{ 'bg-rose-50 text-rose-700 border border-rose-100' if cat=='error' else 'bg-emerald-50 text-emerald-700 border border-emerald-100' }}">{{ msg }}</div>
+      {% endfor %}
+    {% endwith %}
 
     <!-- Ringkasan -->
     <div class="grid grid-cols-2 md:grid-cols-5 gap-3 mb-6">
@@ -82,9 +96,9 @@
     <!-- Cari & sortir -->
     <form method="GET" class="flex flex-wrap gap-2 mb-4">
         <input type="hidden" name="view" value="laptop">
-        <input type="text" name="q" value="{{ q }}" placeholder="Cari nama / serial / merk / kelompok..." class="flex-1 min-w-[220px] px-4 py-2 rounded-lg border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20">
+        <input type="text" name="q" value="{{ q }}" placeholder="Cari nama / serial / merek / kelompok..." class="flex-1 min-w-[220px] px-4 py-2 rounded-lg border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20">
         <select name="sort" class="px-3 py-2 rounded-lg border border-slate-200 text-sm bg-white">
-            {% for val, lbl in [('last_seen','Terbaru'),('name','Nama'),('serial','Serial'),('brand','Merk'),('status','Status'),('score','Skor'),('group','Kelompok')] %}
+            {% for val, lbl in [('last_seen','Terbaru'),('name','Nama'),('serial','Serial'),('brand','Merek'),('status','Status'),('score','Skor'),('group','Kelompok')] %}
             <option value="{{ val }}" {% if sort==val %}selected{% endif %}>{{ lbl }}</option>
             {% endfor %}
         </select>
@@ -104,7 +118,7 @@
                     <th class="px-4 py-3">Pemegang</th>
                     <th class="px-4 py-3">Kelompok</th>
                     <th class="px-4 py-3">Laptop</th>
-                    <th class="px-4 py-3">Serial / Asset</th>
+                    <th class="px-4 py-3">Serial / Aset</th>
                     <th class="px-4 py-3 text-center">Win11</th>
                     <th class="px-4 py-3 text-center">Disk</th>
                     <th class="px-4 py-3 text-center">Skor</th>
@@ -120,7 +134,9 @@
                     <td class="px-4 py-3">{{ r.device_brand or '-' }} <span class="text-slate-400">{{ r.device_model or '' }}</span><div class="text-xs text-slate-400">{{ r.cpu_model or '' }}</div></td>
                     <td class="px-4 py-3 font-mono text-xs">{{ r.serial_number or r.device_serial or '-' }}<div class="text-slate-400">{{ r.asset_no or '' }}</div></td>
                     <td class="px-4 py-3 text-center">
-                        {% if r.win11_ready in (1, '1') %}<span class="text-emerald-600 font-bold" title="Siap Windows 11">✓</span>
+                        {% set os_l = (r.os_name or '')|lower %}
+                        {% if 'windows' in os_l and '11' in os_l %}<span class="text-emerald-600 font-bold" title="Sudah menjalankan Windows 11">✓</span>
+                        {% elif r.win11_ready in (1, '1') %}<span class="text-emerald-600 font-bold" title="Siap Windows 11">✓</span>
                         {% elif r.win11_ready in (0, '0') %}<span class="text-rose-600 font-bold" title="{{ r.win11_blockers or 'Belum memenuhi syarat' }}">✗</span>
                         {% else %}<span class="text-slate-300">–</span>{% endif %}
                     </td>
@@ -136,6 +152,16 @@
                             {% if st=='eligible' %}bg-emerald-50 text-emerald-700{% elif st=='upgrade' %}bg-amber-50 text-amber-700{% elif st=='replace' %}bg-rose-50 text-rose-700{% else %}bg-slate-100 text-slate-500{% endif %}">
                             {{ status_label.get(st, st or '—') }}
                         </span>
+                        {% if r._suggest and r._suggest.suggestion %}
+                        <div class="text-[11px] text-sky-600 mt-1" title="{{ r._suggest.text }}">→ cocok: {{ r._suggest.suggestion.label }}</div>
+                        {% endif %}
+                        {% if r._insight and r._insight.two_axis %}{% set ta = r._insight.two_axis %}
+                        {% if ta.quadrant == 'overloaded' %}
+                        <div class="text-[11px] text-amber-600 mt-1" title="{{ ta.headline }}">⚠ beban nyata berat</div>
+                        {% elif ta.quadrant == 'oversized' %}
+                        <div class="text-[11px] text-slate-500 mt-1" title="{{ ta.headline }}">beban ringan — tak mendesak</div>
+                        {% endif %}
+                        {% endif %}
                     </td>
                     <td class="px-4 py-3 text-right"><a href="{{ url_for('admin.laptop_detail', device_id=r.device_id) }}" class="text-indigo-600 hover:underline text-xs font-medium">Detail →</a></td>
                 </tr>
@@ -161,7 +187,7 @@
                     <th class="px-4 py-3">Kelompok</th>
                     <th class="px-4 py-3">Laptop terbaru</th>
                     <th class="px-4 py-3">Serial</th>
-                    <th class="px-4 py-3">Terakhir update</th>
+                    <th class="px-4 py-3">Terakhir diperbarui</th>
                     <th class="px-4 py-3 text-center">Status</th>
                     <th class="px-4 py-3"></th>
                 </tr>

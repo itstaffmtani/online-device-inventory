@@ -173,6 +173,8 @@ def _spec_rows(s):
     return [
         ("CPU / Prosesor", s.get("cpu_model")),
         ("Skor CPU (PassMark)", s.get("cpu_passmark")),
+        ("Pemakaian CPU saat Cek", ("%s%%" % round(s["cpu_usage_pct"]))
+                                   if s.get("cpu_usage_pct") is not None else "-"),
         ("Core / Thread", "%s / %s" % (s.get("cpu_cores") or "-", s.get("cpu_threads") or "-")),
         ("Arsitektur CPU", s.get("cpu_arch")),
         ("GPU", s.get("gpu")),
@@ -223,6 +225,11 @@ def _secure_boot_text(s):
 
 
 def _win11_text(s):
+    # Bila OS sudah Windows 11, flag kesiapan tak relevan (cegah false negative
+    # collector tanpa admin yang gagal baca TPM/Secure Boot).
+    os_l = (s.get("os_name") or "").lower()
+    if "windows" in os_l and "11" in os_l:
+        return "Sudah Windows 11"
     v = s.get("win11_ready")
     if v in (1, "1"):
         return "Siap (indikasi)"
@@ -248,6 +255,17 @@ def _insight_block(pdf, insights):
     pdf.section("Kesimpulan & Insight")
     pdf.set_font("Helvetica", "B", 9)
     pdf.multi_cell(0, 6, _safe(insights.get("verdict") or "-"))
+    ta = insights.get("two_axis")
+    if ta:
+        pdf.ln(1)
+        pdf.set_font("Helvetica", "B", 9)
+        pdf.set_text_color(60, 60, 90)
+        pdf.cell(0, 6, _safe("Spek %s  x  Beban %s" % (
+            "Layak" if ta["spec_ok"] else "Kurang",
+            "Ringan" if ta["load_ok"] else "Berat")), 0, 1)
+        pdf.set_text_color(0, 0, 0)
+        pdf.set_font("Helvetica", "", 9)
+        pdf.multi_cell(0, 5, _safe(ta["headline"]))
     pdf.ln(1)
     for c in insights.get("components", []):
         pdf.bullet("%s: %s" % (c.get("label"), c.get("text")))

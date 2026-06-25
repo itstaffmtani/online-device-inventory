@@ -230,6 +230,21 @@ if [ "$OS" = "Linux" ]; then
         fi
     fi
 
+    # ---------- SNAPSHOT beban CPU saat ini (delta /proc/stat ~2s) ----------
+    if [ -r /proc/stat ]; then
+        cpu_line1="$(grep -m1 '^cpu ' /proc/stat)"
+        sleep 2
+        cpu_line2="$(grep -m1 '^cpu ' /proc/stat)"
+        cpu_pct="$(awk -v l1="$cpu_line1" -v l2="$cpu_line2" 'BEGIN{
+            n1=split(l1,a," "); n2=split(l2,b," ");
+            t1=0; for(i=2;i<=n1;i++) t1+=a[i]; idle1=a[5]+a[6];
+            t2=0; for(i=2;i<=n2;i++) t2+=b[i]; idle2=b[5]+b[6];
+            dt=t2-t1; di=idle2-idle1;
+            if(dt>0){ v=(1-di/dt)*100; if(v<0)v=0; if(v>100)v=100; printf "%.0f", v }
+        }')"
+        [ -n "$cpu_pct" ] && { PARAM_KEYS+=("cpu_usage_pct"); PARAM_VALS+=("$cpu_pct"); }
+    fi
+
     # ---------- Disk fisik: SSD/HDD + NVMe/SATA -----------------------------
     if command -v lsblk >/dev/null 2>&1; then
         ssd_bytes=0; hdd_bytes=0; ssd_type=""
@@ -419,6 +434,17 @@ elif [ "$OS" = "Darwin" ]; then
         set_param "ram_usage_gb" "$(awk -v u="$used_bytes" 'BEGIN{printf "%.1f", u/1073741824}')"
         upct="$(awk -v u="$used_bytes" -v t="$membytes" 'BEGIN{printf "%.0f", (u/t)*100}')"
         PARAM_KEYS+=("ram_usage_pct"); PARAM_VALS+=("$upct")
+    fi
+
+    # ---------- SNAPSHOT beban CPU saat ini ---------------------------------
+    # `top -l 2` mengambil 2 sampel (jeda ~1s); sampel kedua akurat. Ambil % idle
+    # dari baris "CPU usage", beban = 100 - idle.
+    if command -v top >/dev/null 2>&1; then
+        cpu_idle="$(top -l 2 -n 0 2>/dev/null | grep -E '^CPU usage' | tail -1 | grep -oE '[0-9.]+% idle' | grep -oE '[0-9.]+' | head -1)"
+        if [ -n "$cpu_idle" ]; then
+            cpu_pct="$(awk -v idle="$cpu_idle" 'BEGIN{ v=100-idle; if(v<0)v=0; if(v>100)v=100; printf "%.0f", v }')"
+            PARAM_KEYS+=("cpu_usage_pct"); PARAM_VALS+=("$cpu_pct")
+        fi
     fi
 
     # ---------- Disk fisik (storage internal) -------------------------------
