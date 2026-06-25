@@ -197,7 +197,7 @@
 
     <p class="text-xs text-slate-400 text-center mt-4">
         Laporan dihasilkan dari Sistem Pendataan & Uji Kelayakan Laptop MTani ·
-        Data per {{ latest.submitted_at or '—' }}
+        Data per {{ latest.submitted_at|fmt_dt }}
     </p>
 
     {% endif %}

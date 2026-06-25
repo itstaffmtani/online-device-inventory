@@ -9,6 +9,8 @@
 # ekspor PDF-CSV berbasis spek server SUDAH DIHAPUS. Deteksi spek kini dilakukan
 # collector di laptop karyawan (lihat docs/architecture.md).
 
+from datetime import datetime
+
 from flask import Flask
 from werkzeug.middleware.proxy_fix import ProxyFix
 
@@ -16,6 +18,23 @@ import db
 from config import config
 from routes_admin import admin_bp
 from routes_public import public_bp
+
+_BULAN_ID = ["Jan", "Feb", "Mar", "Apr", "Mei", "Jun",
+             "Jul", "Agu", "Sep", "Okt", "Nov", "Des"]
+
+
+def _fmt_dt(value, with_time=True):
+    """Format timestamp ISO -> '24 Jun 2026, 17:14' (gaya Indonesia)."""
+    if not value:
+        return "—"
+    try:
+        dt = datetime.fromisoformat(str(value))
+    except (ValueError, TypeError):
+        return str(value)
+    s = f"{dt.day} {_BULAN_ID[dt.month - 1]} {dt.year}"
+    if with_time:
+        s += f", {dt.hour:02d}:{dt.minute:02d}"
+    return s
 
 
 def create_app():
@@ -38,6 +57,9 @@ def create_app():
         seed_cpu_benchmarks()
     except Exception as exc:  # noqa: BLE001
         app.logger.warning("Lewati seed cpu_benchmarks: %s", exc)
+
+    # Filter Jinja: format timestamp gaya Indonesia.
+    app.jinja_env.filters["fmt_dt"] = _fmt_dt
 
     # Register blueprint.
     app.register_blueprint(public_bp)

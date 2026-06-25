@@ -45,8 +45,8 @@
                     MAC: {{ device.primary_mac or '—' }}
                 </p>
                 <p class="text-xs text-slate-400 mt-0.5">
-                    Pertama terlihat: {{ device.first_seen_at or '—' }} &nbsp;·&nbsp;
-                    Terakhir: {{ device.last_seen_at or '—' }}
+                    Pertama terlihat: {{ device.first_seen_at|fmt_dt }} &nbsp;·&nbsp;
+                    Terakhir: {{ device.last_seen_at|fmt_dt }}
                 </p>
             </div>
             {% if latest %}
@@ -57,7 +57,7 @@
                     {% if st=='eligible' %}bg-emerald-50 text-emerald-700{% elif st=='upgrade' %}bg-amber-50 text-amber-700{% elif st=='replace' %}bg-rose-50 text-rose-700{% else %}bg-slate-100 text-slate-500{% endif %}">
                     {{ status_label.get(st, st or '—') }}
                 </span>
-                <div class="text-xs text-slate-400 mt-1">{{ latest.submitted_at or '' }}</div>
+                <div class="text-xs text-slate-400 mt-1">{{ latest.submitted_at|fmt_dt }}</div>
             </div>
             {% endif %}
         </div>
@@ -398,7 +398,7 @@
                 <dl class="space-y-1.5">
                     <div class="flex justify-between gap-2">
                         <dt class="text-xs text-slate-400 shrink-0">Waktu Submit</dt>
-                        <dd class="text-xs font-medium text-right">{{ latest.submitted_at or '—' }}</dd>
+                        <dd class="text-xs font-medium text-right">{{ latest.submitted_at|fmt_dt }}</dd>
                     </div>
                     <div class="flex justify-between gap-2">
                         <dt class="text-xs text-slate-400 shrink-0">Sumber Data</dt>
@@ -432,6 +432,7 @@
                 <path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z"/>
             </svg>
             Riwayat Pengisian ({{ submissions|length }})
+            <span class="font-normal text-xs text-slate-400 ml-1">— skor & status di atas dihitung dari pengisian TERKINI</span>
         </div>
         <div class="overflow-x-auto">
             <table class="w-full text-sm text-left">
@@ -452,7 +453,10 @@
                 <tbody class="divide-y divide-slate-100">
                     {% for s in submissions %}
                     <tr class="hover:bg-slate-50/60 {{ 'bg-indigo-50/20' if loop.first else '' }}">
-                        <td class="px-4 py-2 text-xs text-slate-500 whitespace-nowrap">{{ s.submitted_at }}</td>
+                        <td class="px-4 py-2 text-xs text-slate-500 whitespace-nowrap">
+                            {{ s.submitted_at|fmt_dt }}
+                            {% if loop.first %}<span class="ml-1 px-1.5 py-px rounded bg-indigo-100 text-indigo-700 text-[9px] font-bold align-middle">TERKINI</span>{% endif %}
+                        </td>
                         <td class="px-4 py-2 font-medium text-sm">{{ s.holder_name or '-' }}</td>
                         <td class="px-4 py-2 text-xs text-slate-500">
                             {{ s.holder_position or '—' }}
