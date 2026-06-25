@@ -4,10 +4,13 @@
 // ----------------------------------------------------------------------------
 // Prinsip:
 //  - LAPTOP adalah entitas utama, dikunci oleh Serial Number (paling andal).
-//  - PEMEGANG (nama/jabatan/kelompok) menempel ke SUBMISSION, bukan ke laptop,
-//    sehingga pergantian tangan terekam sebagai riwayat.
+//  - KARYAWAN adalah entitas kedua (employees). Tiap SUBMISSION = ikatan
+//    1 karyawan + 1 device pada satu waktu — menjejak resign/handover,
+//    ganti laptop, dan ganti jabatan.
+//  - PEMEGANG (nama/jabatan/kelompok) tetap menempel ke SUBMISSION (snapshot),
+//    employees menyimpan cache identitas terkini + status active/resigned.
 //  - Setiap pengisian form = 1 baris submissions (riwayat). Dashboard
-//    menampilkan submission TERBARU per device.
+//    menampilkan submission TERBARU per device dan per karyawan.
 //  - Spesifikasi & skor disimpan per-submission (snapshot waktu itu),
 //    karena spek bisa berubah (mis. upgrade RAM) dan skor mengikutinya.
 // ============================================================================
@@ -45,6 +48,11 @@ Enum os_family {
   linux
 }
 
+Enum employee_status {
+  active   [note: 'Masih bekerja / aktif memegang laptop']
+  resigned [note: 'Sudah resign — dipertahankan untuk riwayat handover']
+}
+
 Enum submission_source {
   windows_script
   mac_script
@@ -71,12 +79,38 @@ Table devices {
 }
 
 // ----------------------------------------------------------------------------
+// EMPLOYEES — satu baris per KARYAWAN. Submission mengikat karyawan + device.
+// Identitas dicocokkan via (name_key, company); jabatan/kelompok di-cache dari
+// submission TERBARU agar dashboard "Per Karyawan" cepat.
+// ----------------------------------------------------------------------------
+Table employees {
+  id                  integer          [pk, increment]
+  full_name           varchar          [not null]
+  name_key            varchar          [note: 'Normalisasi pencocokan: lower, spasi tunggal, trim']
+  employee_code       varchar          [note: 'Opsional (NIK), bisa kosong']
+  company             varchar
+  current_position    varchar          [note: 'Cache jabatan dari submission TERBARU']
+  current_work_group  varchar          [note: 'Cache kelompok dari submission TERBARU']
+  status              employee_status  [note: "default 'active'"]
+  notes               text             [note: 'Catatan admin']
+  first_seen_at       timestamp
+  last_seen_at        timestamp
+
+  indexes {
+    (name_key, company) [name: 'idx_employees_key', note: 'Lookup pencocokan karyawan saat submit + backfill']
+  }
+
+  Note: 'Pencocokan karyawan saat submit: name_key + company (IFNULL setara). Bila ada -> segarkan cache + last_seen_at + status=active. Bila tidak -> buat baru.'
+}
+
+// ----------------------------------------------------------------------------
 // SUBMISSIONS — riwayat. Tiap pengisian form jadi 1 baris.
 // Berisi: pemegang saat itu + kondisi + SNAPSHOT spek + SNAPSHOT skor.
 // ----------------------------------------------------------------------------
 Table submissions {
   id                integer            [pk, increment]
   device_id         integer            [ref: > devices.id, not null]
+  employee_id       integer            [ref: > employees.id, note: 'Ikatan ke karyawan (di-resolve via name_key + company saat submit; backfill untuk data lama)']
   submitted_at      timestamp          [not null]
   source            submission_source
 
@@ -106,12 +140,18 @@ Table submissions {
   // — Spesifikasi: GPU —
   gpu               text               [note: 'Bisa lebih dari satu, dipisah koma']
 
+  // — Spesifikasi: Motherboard —
+  motherboard       text               [note: 'Vendor + produk motherboard (mis. "ASUS PRIME B450M")']
+
   // — Spesifikasi: RAM —
   ram_gb            real
   ram_type          varchar            [note: 'DDR4/DDR5/LPDDR5 — bila terdeteksi']
   ram_speed_mhz     integer
   ram_usage_pct     real               [note: 'SNAPSHOT beban saat script jalan']
   ram_usage_gb      real               [note: 'SNAPSHOT beban saat script jalan']
+  ram_slots_total   integer            [note: 'Jumlah slot RAM fisik pada board']
+  ram_slots_used    integer            [note: 'Slot terisi (untuk hitung headroom upgrade)']
+  ram_max_gb        real               [note: 'Kapasitas RAM maksimum board (GB)']
 
   // — Spesifikasi: Storage —
   ssd_gb            real
@@ -120,6 +160,8 @@ Table submissions {
   disk_raw          text               [note: 'JSON daftar disk fisik mentah (untuk audit)']
   os_total_gb       real
   os_free_gb        real
+  disk_health_pct   real               [note: 'Kesehatan disk sistem 0-100 (100 - Wear; atau map HealthStatus)']
+  disk_health_raw   text               [note: 'Teks mentah, mis. "Healthy" / "Wear 4%"']
 
   // — Spesifikasi: Baterai —
   battery_pct        real
@@ -129,6 +171,12 @@ Table submissions {
 
   // — Spesifikasi: OS —
   os_name           varchar
+
+  // — Keamanan & kesiapan Windows 11 (indikasi; khusus Windows) —
+  tpm_version       varchar            [note: 'mis. "2.0", "1.2", "Tidak ada"']
+  secure_boot       integer            [note: '1=aktif/kapabel, 0=tidak, NULL=tak terdeteksi']
+  win11_ready       integer            [note: '1=siap (indikasi), 0=tidak, NULL=tak terdeteksi/non-Windows']
+  win11_blockers    text               [note: 'Alasan tidak siap, mis. "TPM bukan 2.0; Secure Boot mati"']
 
   // — Kondisi & kelengkapan (isian manusia) —
   physical_condition physical_condition
@@ -148,7 +196,7 @@ Table submissions {
     (device_id, submitted_at) [note: 'Ambil submission terbaru per device']
   }
 
-  Note: 'Dashboard "kondisi terbaru" = submission dengan submitted_at terbesar per device_id.'
+  Note: 'Dashboard "kondisi terbaru" = submission dengan submitted_at terbesar per device_id. Per karyawan: terbesar per employee_id (latest_per_employee).'
 }
 
 // ----------------------------------------------------------------------------

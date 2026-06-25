@@ -87,6 +87,19 @@ yang kosong = field dibiarkan manual). Nama param = nama field form.
 | `battery_pct` | `78` | psutil |
 | `battery_wh_full` | `41.2` | BatteryFullChargedCapacity |
 | `battery_wh_design` | `57.0` | BatteryStaticData DesignedCapacity |
+| `motherboard` | `LENOVO LNVNB161216` | Win32_BaseBoard (vendor + produk) |
+| `ram_slots_total` | `2` | Win32_PhysicalMemoryArray.MemoryDevices |
+| `ram_slots_used` | `1` | jumlah Win32_PhysicalMemory |
+| `ram_max_gb` | `32` | Win32_PhysicalMemoryArray.MaxCapacity → GB |
+| `disk_health_pct` | `96` | StorageReliabilityCounter Wear / HealthStatus (disk sistem) |
+| `disk_health_raw` | `Wear 4%` | teks mentah kesehatan disk |
+| `tpm_version` | `2.0` | Win32_Tpm.SpecVersion (angka pertama) |
+| `secure_boot` | `1` | Confirm-SecureBootUEFI (1/0) |
+| `win11_ready` | `1` | indikasi siap Win11 (TPM 2.0 + Secure Boot + RAM≥4 + disk≥64) |
+| `win11_blockers` | `TPM bukan 2.0` | alasan belum siap Win11 (bila ada) |
+
+> Param baru `tpm_version`, `secure_boot`, `win11_ready`, `win11_blockers` khusus
+> Windows; di Mac/Linux dikosongkan (best-effort). Nama param = nama kolom DB.
 
 > Collector hanya **mengisi form**, tidak mengirim langsung. Pengiriman ke server
 > tetap lewat tombol "Kirim" di form (POST `/api/submit`), supaya karyawan sempat
@@ -97,11 +110,16 @@ yang kosong = field dibiarkan manual). Nama param = nama field form.
 |---|---|---|---|
 | GET | `/` | Landing: konteks + unduh collector | — |
 | GET | `/form` | Form pengisian 1 halaman (auto-prefill dari URL) | — |
-| POST | `/api/submit` | Terima data, cocokkan device, hitung skor, simpan | token |
+| POST | `/api/submit` | Terima data, cocokkan device + karyawan, hitung skor, simpan | token |
+| GET | `/laptop/<id>` | Laporan publik 1 laptop (read-only, untuk dibagikan) | — |
 | GET | `/dl/windows`, `/dl/mac` | Unduh file collector | — |
-| GET | `/admin` | Dashboard + list | password |
-| GET | `/admin/device/<id>` | Detail + riwayat 1 laptop | password |
-| GET | `/admin/export.xlsx` | Export seluruh data terbaru ke Excel | password |
+| GET | `/admin` | Dashboard (tab Laptop / Karyawan / Pengadaan) | password |
+| GET | `/admin/laptop/<id>` | Detail + riwayat 1 laptop | password |
+| GET | `/admin/device/<id>` | Redirect 302 ke `/admin/laptop/<id>` (back-compat) | password |
+| GET | `/admin/karyawan/<id>` | Detail + riwayat 1 karyawan | password |
+| GET | `/admin/laptop/<id>/export.pdf` | Laporan PDF 1 laptop (fpdf2) | password |
+| GET | `/admin/karyawan/<id>/export.pdf` | Laporan PDF 1 karyawan (fpdf2) | password |
+| GET | `/admin/export.xlsx` | Export seluruh data terbaru ke Excel (+ sheet Per Karyawan) | password |
 | POST | `/admin/login` / `/admin/logout` | Sesi admin | — |
 
 ## Keamanan (sederhana, cukup untuk tahap ini)

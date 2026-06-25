@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Detail Karyawan — Inventaris MTani</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+      body { font-family: system-ui, sans-serif; }
+      @media print {
+        .no-print { display: none !important; }
+        body { background: #fff; }
+        .print-border { border-color: #e2e8f0 !important; box-shadow: none !important; }
+      }
+    </style>
+</head>
+<body class="bg-slate-50 min-h-screen text-slate-800">
+<div class="container mx-auto px-4 py-8 max-w-5xl">
+
+    <div class="flex items-center justify-between gap-3 flex-wrap no-print">
+        <a href="{{ url_for('admin.dashboard', view='karyawan') }}" class="text-sm text-indigo-600 hover:underline">← Kembali ke daftar karyawan</a>
+        <div class="flex items-center gap-2">
+            <a href="{{ url_for('admin.employee_export_pdf', employee_id=employee.id) }}" class="inline-flex items-center gap-1.5 bg-rose-600 hover:bg-rose-700 text-white text-xs font-medium px-3 py-1.5 rounded-lg">
+                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="1.6" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z"/></svg>
+                Export PDF
+            </a>
+            <button onclick="window.print()" class="inline-flex items-center gap-1.5 border border-slate-200 bg-white text-slate-600 text-xs font-medium px-3 py-1.5 rounded-lg hover:bg-slate-50">
+                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="1.6" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M6.72 13.829c-.24.03-.48.062-.72.096m.72-.096a42.415 42.415 0 0 1 10.56 0m-10.56 0L6.34 18m10.94-4.171c.24.03.48.062.72.096m-.72-.096L17.66 18m0 0 .229 2.523a1.125 1.125 0 0 1-1.12 1.227H7.231c-.662 0-1.18-.568-1.12-1.227L6.34 18m11.318 0h1.091A2.25 2.25 0 0 0 21 15.75V9.456c0-1.081-.768-2.015-1.837-2.175a48.055 48.055 0 0 0-1.913-.247M6.34 18H5.25A2.25 2.25 0 0 1 3 15.75V9.456c0-1.081.768-2.015 1.837-2.175a48.041 48.041 0 0 1 1.913-.247"/></svg>
+                Cetak
+            </button>
+        </div>
+    </div>
+
+    <!-- HEADER -->
+    <div class="mt-3 bg-white rounded-2xl border border-slate-200 p-6 mb-4">
+        <div class="flex items-start justify-between flex-wrap gap-4">
+            <div>
+                <h1 class="text-xl font-bold text-slate-900">{{ employee.full_name or 'Karyawan' }}</h1>
+                <p class="text-sm text-slate-500 mt-1">
+                    {{ employee.current_position or '—' }}
+                    {% if employee.company %}&nbsp;·&nbsp; {{ employee.company }}{% endif %}
+                    {% if employee.current_work_group %}&nbsp;·&nbsp; {{ wg_label.get(employee.current_work_group, employee.current_work_group) }}{% endif %}
+                </p>
+                {% if employee.employee_code %}<p class="text-xs text-slate-400 mt-0.5 font-mono">Kode/NIK: {{ employee.employee_code }}</p>{% endif %}
+                <p class="text-xs text-slate-400 mt-0.5">
+                    Pertama tercatat: {{ employee.first_seen_at|fmt_dt }} &nbsp;·&nbsp;
+                    Terakhir terlihat: {{ employee.last_seen_at|fmt_dt }}
+                </p>
+            </div>
+            <div class="text-right shrink-0">
+                {% if (employee.status or 'active') == 'active' %}
+                <span class="inline-block px-3 py-1 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700">Aktif</span>
+                {% else %}
+                <span class="inline-block px-3 py-1 rounded-full text-xs font-semibold bg-slate-100 text-slate-500">Resign</span>
+                {% endif %}
+                {% if latest %}
+                <div class="text-3xl font-extrabold text-indigo-600 mt-2">{{ latest.score_total if latest.score_total is not none else '—' }}</div>
+                {% set st = latest.status %}
+                <span class="inline-block px-2 py-0.5 rounded-full text-xs font-semibold
+                    {% if st=='eligible' %}bg-emerald-50 text-emerald-700{% elif st=='upgrade' %}bg-amber-50 text-amber-700{% elif st=='replace' %}bg-rose-50 text-rose-700{% else %}bg-slate-100 text-slate-500{% endif %}">
+                    {{ status_label.get(st, st or '—') }}
+                </span>
+                {% endif %}
+            </div>
+        </div>
+        {% if employee.notes %}
+        <div class="mt-3 text-xs bg-amber-50 border border-amber-100 text-amber-800 rounded-lg p-3">
+            <span class="font-semibold">Catatan admin:</span> {{ employee.notes }}
+        </div>
+        {% endif %}
+    </div>
+
+    <!-- LAPTOP TERKINI -->
+    {% if latest %}
+    <div class="bg-white rounded-xl border border-slate-200 p-5 mb-4">
+        <h2 class="text-xs font-bold uppercase text-slate-400 mb-3">Laptop Terkini</h2>
+        <div class="flex items-center justify-between gap-3 flex-wrap">
+            <div>
+                <div class="font-semibold text-slate-800">{{ latest.device_brand or '-' }} {{ latest.device_model or '' }}</div>
+                <div class="text-xs text-slate-400 font-mono">SN: {{ latest.device_serial or '—' }}</div>
+            </div>
+            <a href="{{ url_for('admin.laptop_detail', device_id=latest.device_id) }}" class="text-indigo-600 hover:underline text-xs font-medium no-print">Lihat detail laptop →</a>
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- INSIGHT / KESIMPULAN -->
+    {% if insights %}
+    {% set tone_dot = {'good':'bg-emerald-500','warn':'bg-amber-500','bad':'bg-rose-500','neutral':'bg-slate-400'} %}
+    {% set tone_txt = {'good':'text-emerald-700','warn':'text-amber-700','bad':'text-rose-700','neutral':'text-slate-600'} %}
+    {% set head_bg = {'good':'bg-emerald-50 border-emerald-200 text-emerald-800','warn':'bg-amber-50 border-amber-200 text-amber-800','bad':'bg-rose-50 border-rose-200 text-rose-800','neutral':'bg-slate-50 border-slate-200 text-slate-700'} %}
+    <div class="bg-white rounded-xl border border-slate-200 p-5 mb-4 print-border">
+        <h2 class="text-xs font-bold uppercase text-slate-400 mb-3">Kesimpulan & Insight (laptop terkini)</h2>
+        <div class="rounded-xl border {{ head_bg[insights.tone] }} p-3 mb-4 text-sm font-semibold">{{ insights.verdict }}</div>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-4">
+            <div>
+                <div class="text-xs text-slate-400 font-semibold mb-2">Penjelasan</div>
+                <ul class="space-y-1.5">
+                    {% for c in insights.components %}
+                    <li class="flex gap-2 items-start text-xs">
+                        <span class="w-1.5 h-1.5 rounded-full {{ tone_dot[c.tone] }} mt-1.5 shrink-0"></span>
+                        <span><span class="font-semibold {{ tone_txt[c.tone] }}">{{ c.label }}:</span> <span class="text-slate-600">{{ c.text }}</span></span>
+                    </li>
+                    {% endfor %}
+                </ul>
+            </div>
+            <div>
+                <div class="text-xs text-slate-400 font-semibold mb-2">Rekomendasi</div>
+                {% if insights.recommendations %}
+                <ul class="text-xs text-slate-700 space-y-1">
+                    {% for r in insights.recommendations %}
+                    <li class="flex gap-1.5 items-start"><span class="text-indigo-500 mt-0.5 shrink-0">→</span><span>{{ r }}</span></li>
+                    {% endfor %}
+                </ul>
+                {% else %}
+                <p class="text-xs text-slate-400">Tidak ada rekomendasi khusus.</p>
+                {% endif %}
+                {% if insights.eol_text %}
+                <p class="text-xs text-slate-500 mt-2">{{ insights.eol_text }}</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- RIWAYAT LAPTOP -->
+    <div class="bg-white rounded-xl border border-slate-200 overflow-hidden">
+        <div class="px-5 py-3 border-b border-slate-200 font-semibold text-slate-700 text-sm flex items-center gap-2">
+            <svg class="w-4 h-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke-width="1.6" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z"/>
+            </svg>
+            Riwayat Laptop & Penempatan ({{ submissions|length }})
+        </div>
+        <div class="overflow-x-auto">
+            <table class="w-full text-sm text-left">
+                <thead class="bg-slate-50 text-slate-500 text-xs uppercase border-b border-slate-200">
+                    <tr>
+                        <th class="px-4 py-2 whitespace-nowrap">Waktu</th>
+                        <th class="px-4 py-2">Laptop</th>
+                        <th class="px-4 py-2">Serial</th>
+                        <th class="px-4 py-2">Jabatan</th>
+                        <th class="px-4 py-2">Kelompok</th>
+                        <th class="px-4 py-2 text-center">Total</th>
+                        <th class="px-4 py-2 text-center">Status</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-100">
+                    {% for s in submissions %}
+                    {% set prev = submissions[loop.index] if not loop.last else none %}
+                    {% set ganti_laptop = prev and s.device_id != prev.device_id %}
+                    {% set ganti_jabatan = prev and (s.holder_position or '') != (prev.holder_position or '') %}
+                    {% set ganti_kelompok = prev and (s.work_group or '') != (prev.work_group or '') %}
+                    <tr class="hover:bg-slate-50/60 {{ 'bg-indigo-50/20' if loop.first else '' }}">
+                        <td class="px-4 py-2 text-xs text-slate-500 whitespace-nowrap">
+                            {{ s.submitted_at|fmt_dt }}
+                            {% if loop.first %}<span class="ml-1 px-1.5 py-px rounded bg-indigo-100 text-indigo-700 text-[9px] font-bold align-middle">TERKINI</span>{% endif %}
+                        </td>
+                        <td class="px-4 py-2 text-sm">
+                            <a href="{{ url_for('admin.laptop_detail', device_id=s.device_id) }}" class="text-indigo-600 hover:underline font-medium">{{ s.device_brand or '-' }} {{ s.device_model or '' }}</a>
+                            {% if ganti_laptop %}<span class="ml-1 px-1.5 py-px rounded bg-amber-100 text-amber-700 text-[9px] font-bold align-middle">GANTI LAPTOP</span>{% endif %}
+                        </td>
+                        <td class="px-4 py-2 text-xs font-mono text-slate-500">{{ s.device_serial or '—' }}</td>
+                        <td class="px-4 py-2 text-xs text-slate-500">
+                            {{ s.holder_position or '—' }}
+                            {% if ganti_jabatan %}<span class="ml-1 px-1 py-px rounded bg-amber-50 text-amber-700 text-[9px] font-bold align-middle">ganti jabatan</span>{% endif %}
+                        </td>
+                        <td class="px-4 py-2 text-xs">
+                            {{ group_label(s) }}
+                            {% if ganti_kelompok %}<span class="ml-1 px-1 py-px rounded bg-amber-50 text-amber-700 text-[9px] font-bold align-middle">ganti kelompok</span>{% endif %}
+                        </td>
+                        <td class="px-4 py-2 text-center font-bold text-indigo-600">{{ s.score_total if s.score_total is not none else '—' }}</td>
+                        <td class="px-4 py-2 text-center">
+                            {% set st = s.status %}
+                            <span class="px-2 py-0.5 rounded-full text-xs font-semibold
+                                {% if st=='eligible' %}bg-emerald-50 text-emerald-700{% elif st=='upgrade' %}bg-amber-50 text-amber-700{% elif st=='replace' %}bg-rose-50 text-rose-700{% else %}bg-slate-100 text-slate-500{% endif %}">
+                                {{ status_label.get(st, st or '—') }}
+                            </span>
+                        </td>
+                    </tr>
+                    {% else %}
+                    <tr><td colspan="7" class="px-4 py-10 text-center text-slate-400">Belum ada riwayat.</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+</div>
+</body>
+</html>

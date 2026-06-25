@@ -129,6 +129,16 @@
                 <dt class="text-slate-500">RAM</dt>
                 <dd class="font-medium text-right">{{ latest.ram_gb or '—' }} GB{% if latest.ram_type %} {{ latest.ram_type }}{% endif %}</dd>
             </div>
+            {% if latest.ram_slots_total or latest.ram_slots_used or latest.ram_max_gb %}
+            <div class="flex justify-between gap-2 border-b border-slate-50 pb-2">
+                <dt class="text-slate-500">Slot &amp; Maks RAM</dt>
+                <dd class="font-medium text-right">
+                    {% if latest.ram_gb %}{{ latest.ram_gb }}GB{% endif %}
+                    {% if latest.ram_slots_used and latest.ram_slots_total %} di {{ latest.ram_slots_used }}/{{ latest.ram_slots_total }} slot{% endif %}
+                    {% if latest.ram_max_gb %}, maks {{ latest.ram_max_gb|round(0)|int }}GB{% endif %}
+                </dd>
+            </div>
+            {% endif %}
             <div class="flex justify-between gap-2 border-b border-slate-50 pb-2">
                 <dt class="text-slate-500">Penyimpanan</dt>
                 <dd class="font-medium text-right">
@@ -145,6 +155,41 @@
                 <dt class="text-slate-500">Sistem Operasi</dt>
                 <dd class="font-medium text-right">{{ latest.os_name or '—' }}</dd>
             </div>
+            {% if latest.motherboard %}
+            <div class="flex justify-between gap-2 border-b border-slate-50 pb-2">
+                <dt class="text-slate-500">Motherboard</dt>
+                <dd class="font-medium text-right">{{ latest.motherboard }}</dd>
+            </div>
+            {% endif %}
+            {% if latest.disk_health_pct is not none or latest.disk_health_raw %}
+            <div class="flex justify-between gap-2 border-b border-slate-50 pb-2">
+                <dt class="text-slate-500">Kesehatan Disk</dt>
+                <dd class="font-medium text-right">
+                    {% if latest.disk_health_pct is not none %}{{ latest.disk_health_pct|round(0)|int }}%{% endif %}
+                    {% if latest.disk_health_raw %} ({{ latest.disk_health_raw }}){% endif %}
+                </dd>
+            </div>
+            {% endif %}
+            {% if latest.tpm_version %}
+            <div class="flex justify-between gap-2 border-b border-slate-50 pb-2">
+                <dt class="text-slate-500">TPM</dt>
+                <dd class="font-medium text-right">{{ latest.tpm_version }}</dd>
+            </div>
+            {% endif %}
+            {% if latest.secure_boot is not none %}
+            <div class="flex justify-between gap-2 border-b border-slate-50 pb-2">
+                <dt class="text-slate-500">Secure Boot</dt>
+                <dd class="font-medium text-right">{% if latest.secure_boot %}Aktif{% else %}Tidak aktif{% endif %}</dd>
+            </div>
+            {% endif %}
+            {% if latest.win11_ready is not none %}
+            <div class="flex justify-between gap-2 border-b border-slate-50 pb-2">
+                <dt class="text-slate-500">Siap Windows 11</dt>
+                <dd class="font-medium text-right">
+                    {% if latest.win11_ready %}Ya (indikasi){% else %}Belum{% if latest.win11_blockers %} — {{ latest.win11_blockers }}{% endif %}{% endif %}
+                </dd>
+            </div>
+            {% endif %}
             <div class="flex justify-between gap-2 border-b border-slate-50 pb-2">
                 <dt class="text-slate-500">Kesehatan Baterai</dt>
                 <dd class="font-medium text-right">

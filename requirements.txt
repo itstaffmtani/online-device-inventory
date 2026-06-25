@@ -2,4 +2,5 @@
 # karyawan, jadi psutil/py-cpuinfo TIDAK perlu di server.
 Flask==3.0.3
 openpyxl==3.1.5
+fpdf2==2.8.7           # ekspor PDF laporan per-laptop & per-karyawan (font core Helvetica, tanpa file font eksternal)
 gunicorn==23.0.0        # WSGI server untuk produksi (di belakang nginx)

@@ -86,6 +86,32 @@ def _num(v):
     return float(m.group(0).replace(",", "."))
 
 
+def os_supported(os_name) -> bool:
+    """§9 (D2) — apakah OS masih didukung vendor?
+
+    Mengembalikan:
+      - False  -> Windows 10/8/7 (Windows 10 EOL Okt 2025).
+      - True   -> Windows 11 atau macOS/Linux modern.
+      - None   -> tidak jelas / tak terdeteksi.
+    """
+    s = (os_name or "").lower()
+    if not s.strip():
+        return None
+    if "windows" in s:
+        # Windows tak didukung lagi: 10, 8.1, 8, 7 (dan versi lebih lama).
+        if re.search(r"\b(10|8\.1|8|7|xp|vista)\b", s):
+            return False
+        if "11" in s:
+            return True
+        # "Windows" tanpa versi jelas -> tak bisa dipastikan.
+        return None
+    # OS non-Windows modern (macOS/Linux/ChromeOS) dianggap masih didukung.
+    if any(k in s for k in ("mac", "darwin", "linux", "ubuntu", "debian",
+                            "fedora", "chrome", "bsd")):
+        return True
+    return None
+
+
 # ---------------------------------------------------------------------------
 # §6 — Normalisasi & lookup CPU -> PassMark
 # ---------------------------------------------------------------------------
@@ -215,6 +241,12 @@ def score_spec(sub, profile, weights):
     ram_pts = _clamp(round(100 * ram_gb / profile["ram_ideal"]), 0, 100)
     sto_pts, has_ssd, has_hdd = _storage_points(sub)
 
+    # §2c (D1) — kesehatan disk mengali poin storage. Netral (faktor 1.0) bila
+    # disk_health_pct tak diketahui (None), sehingga contoh §7 tetap 100.
+    disk_health = _num(sub.get("disk_health_pct"))
+    if disk_health is not None:
+        sto_pts = round(sto_pts * _clamp(disk_health / 100, 0.5, 1.0))
+
     pts = {"cpu": cpu_pts, "ram": ram_pts, "storage": sto_pts}
     used = dict(weights)
 
@@ -338,6 +370,29 @@ def score_submission(sub: dict, current_year: int) -> dict:
     if comp["battery_health"] is not None and comp["battery_health"] < 60:
         reasons.append(
             f"Baterai sehat {round(comp['battery_health'])}% — pertimbangkan ganti baterai"
+        )
+
+    # §9 (D1) — kesehatan disk rendah: flag perawatan, tidak memaksa status.
+    disk_health = _num(sub.get("disk_health_pct"))
+    if disk_health is not None and disk_health < 50:
+        reasons.append(
+            f"Kesehatan disk {round(disk_health)}% — cadangkan data & "
+            f"pertimbangkan ganti disk"
+        )
+
+    # §9 (D2) — dukungan OS: Windows 10 habis dukungan (Okt 2025).
+    if os_supported(sub.get("os_name")) is False:
+        reasons.append(
+            "Windows 10 sudah habis dukungan (Okt 2025) — rencanakan "
+            "migrasi/ganti ke Windows 11"
+        )
+
+    # §9 (D3) — kesiapan Windows 11 (indikasi): flag + rekomendasi.
+    win11_ready = sub.get("win11_ready")
+    if win11_ready is not None and str(win11_ready) == "0":
+        blockers = (sub.get("win11_blockers") or "").strip() or "syarat tidak terpenuhi"
+        reasons.append(
+            f"Belum memenuhi syarat Windows 11 (indikasi): {blockers}"
         )
 
     # §5 — EOL.
@@ -469,6 +524,84 @@ def build_insights(sub: dict, current_year: int = None) -> dict:
         components.append({"label": "Baterai", "tone": "bad", "text": f"Baterai lemah ({round(health)}%)."})
         recommendations.append("Pertimbangkan ganti baterai.")
 
+    # — Kesehatan Disk (D4) —
+    disk_health = _num(sub.get("disk_health_pct"))
+    disk_raw = (sub.get("disk_health_raw") or "").strip()
+    if disk_health is None:
+        components.append({"label": "Kesehatan Disk", "tone": "neutral",
+            "text": "Data kesehatan disk tidak tersedia."})
+    else:
+        dh = round(disk_health)
+        suffix = f" ({disk_raw})" if disk_raw else ""
+        if disk_health >= 70:
+            components.append({"label": "Kesehatan Disk", "tone": "good",
+                "text": f"Disk sehat ({dh}%){suffix}."})
+        elif disk_health >= 40:
+            components.append({"label": "Kesehatan Disk", "tone": "warn",
+                "text": f"Kesehatan disk menurun ({dh}%){suffix} — pantau berkala."})
+        else:
+            components.append({"label": "Kesehatan Disk", "tone": "bad",
+                "text": f"Kesehatan disk lemah ({dh}%){suffix}."})
+            recommendations.append(
+                f"Kesehatan disk {dh}% — cadangkan data & pertimbangkan ganti disk.")
+
+    # — Dukungan OS (D4) —
+    os_ok = os_supported(sub.get("os_name"))
+    if os_ok is True:
+        components.append({"label": "Dukungan OS", "tone": "good",
+            "text": "Sistem operasi masih didukung vendor."})
+    elif os_ok is False:
+        components.append({"label": "Dukungan OS", "tone": "bad",
+            "text": "Windows 10 habis dukungan (Okt 2025) — rencanakan migrasi ke Windows 11."})
+        recommendations.append(
+            "Windows 10 sudah habis dukungan — rencanakan migrasi/ganti ke Windows 11.")
+    else:
+        components.append({"label": "Dukungan OS", "tone": "neutral",
+            "text": "Status dukungan sistem operasi belum dapat dipastikan."})
+
+    # — Windows 11 (D4) — sembunyikan untuk non-Windows yang OS-nya jelas bukan Windows.
+    os_is_windows = "windows" in (sub.get("os_name") or "").lower()
+    win11_ready = sub.get("win11_ready")
+    win11_blockers = (sub.get("win11_blockers") or "").strip()
+    if win11_ready is None:
+        # Tampilkan netral hanya bila memang Windows atau OS tak jelas;
+        # untuk OS jelas non-Windows, lewati komponen ini.
+        if os_is_windows or not (sub.get("os_name") or "").strip():
+            components.append({"label": "Windows 11", "tone": "neutral",
+                "text": "Kesiapan Windows 11 belum terdeteksi."})
+    elif str(win11_ready) == "1":
+        components.append({"label": "Windows 11", "tone": "good",
+            "text": "Memenuhi syarat (indikasi) untuk Windows 11."})
+    else:
+        blk = f": {win11_blockers}" if win11_blockers else ""
+        components.append({"label": "Windows 11", "tone": "warn",
+            "text": f"Belum memenuhi syarat Windows 11 (indikasi){blk}."})
+        recommendations.append(
+            f"Belum siap Windows 11 (indikasi){blk} — periksa TPM/Secure Boot/RAM.")
+
+    # — Headroom RAM (D4) — peluang upgrade RAM bila masih ada slot kosong.
+    slots_total = _num(sub.get("ram_slots_total"))
+    slots_used = _num(sub.get("ram_slots_used"))
+    ram_max_gb = _num(sub.get("ram_max_gb"))
+    if slots_total or slots_used or ram_max_gb:
+        st = int(slots_total) if slots_total else None
+        su = int(slots_used) if slots_used else None
+        has_free_slot = (st is not None and su is not None and su < st)
+        below_max = (ram_max_gb is not None and ram_gb > 0 and ram_gb < ram_max_gb)
+        slot_txt = (f"{su}/{st} slot" if (st is not None and su is not None)
+                    else (f"{su} slot terpakai" if su is not None else f"{st} slot"))
+        max_txt = f", maks {_fmt_gb(ram_max_gb)}GB" if ram_max_gb else ""
+        if has_free_slot and below_max:
+            components.append({"label": "Headroom RAM", "tone": "good",
+                "text": f"Masih bisa tambah RAM: {slot_txt}{max_txt}."})
+            # Rekomendasi actionable bila RAM di bawah ideal & ada headroom.
+            if ram_gb and ram_gb < profile["ram_ideal"]:
+                recommendations.append(
+                    f"Tambah RAM hingga {profile['ram_ideal']}GB — tersedia slot kosong.")
+        else:
+            components.append({"label": "Headroom RAM", "tone": "neutral",
+                "text": f"RAM {_fmt_gb(ram_gb)}GB di {slot_txt}{max_txt}."})
+
     # — Beban RAM saat pengecekan —
     pct = _num(sub.get("ram_usage_pct"))
     if pct is None:
@@ -578,3 +711,56 @@ if __name__ == "__main__":
     }, current_year=2026)
     assert any("diperkirakan" in r for r in result2["status_reasons"]), result2
     print("OK — fallback CSV & estimasi CPU tak dikenal jalan.")
+
+    # --- Self-test BARU (D1-D4) — tidak mengganggu assert lama ---
+
+    # D1 — disk_health=None tidak mengubah skor contoh §7 (storage tetap 100).
+    base = dict(example)
+    base["disk_health_pct"] = None
+    r_none = score_submission(base, current_year=2026)
+    assert r_none["score_spec"] == 77, r_none["score_spec"]
+
+    # D1 — disk_health rendah: faktor mengali storage + reason perawatan muncul,
+    # tetapi status tidak dipaksa ke replace (tetap flag).
+    low_disk = dict(example)
+    low_disk["disk_health_pct"] = 30
+    r_disk = score_submission(low_disk, current_year=2026)
+    assert any("Kesehatan disk" in r for r in r_disk["status_reasons"]), r_disk
+    assert r_disk["score_spec"] < 77, r_disk["score_spec"]  # storage 100->50 turun
+    print("OK — D1 kesehatan disk: netral bila None, flag & turunkan storage bila rendah.")
+
+    # D2 — Windows 10 EOL: os_supported False + reason.
+    assert os_supported("Windows 10 Pro") is False
+    assert os_supported("Windows 11 Home") is True
+    assert os_supported("Ubuntu 22.04") is True
+    assert os_supported("") is None
+    win10 = dict(example)
+    win10["os_name"] = "Windows 10 Pro"
+    r_os = score_submission(win10, current_year=2026)
+    assert any("Windows 10" in r for r in r_os["status_reasons"]), r_os
+    print("OK — D2 dukungan OS: Windows 10 EOL terdeteksi + reason.")
+
+    # D3 — win11_ready=0 -> reason indikasi muncul (tanpa memaksa status).
+    nowin11 = dict(example)
+    nowin11["win11_ready"] = 0
+    nowin11["win11_blockers"] = "TPM bukan 2.0; Secure Boot tidak aktif"
+    r_w11 = score_submission(nowin11, current_year=2026)
+    assert any("Windows 11" in r for r in r_w11["status_reasons"]), r_w11
+    assert r_w11["status"] == "eligible", r_w11["status"]  # tetap layak, hanya flag
+    print("OK — D3 kesiapan Windows 11: reason muncul, status tidak dipaksa.")
+
+    # D4 — komponen insight baru hadir + headroom RAM actionable.
+    ins = build_insights({
+        "work_group": "admin", "status": "eligible",
+        "cpu_passmark": 16000, "ram_gb": 8,
+        "ssd_type": "NVMe", "ssd_gb": 512,
+        "disk_health_pct": 95, "disk_health_raw": "Healthy",
+        "os_name": "Windows 11 Home",
+        "win11_ready": 1,
+        "ram_slots_total": 2, "ram_slots_used": 1, "ram_max_gb": 32,
+    }, current_year=2026)
+    labels = {c["label"] for c in ins["components"]}
+    for need in ("Kesehatan Disk", "Dukungan OS", "Windows 11", "Headroom RAM"):
+        assert need in labels, (need, labels)
+    assert any("Tambah RAM hingga 16GB" in r for r in ins["recommendations"]), ins["recommendations"]
+    print("OK — D4 build_insights: komponen disk/OS/Win11/headroom & rekomendasi RAM hadir.")

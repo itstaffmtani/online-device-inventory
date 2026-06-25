@@ -1,10 +1,14 @@
-# routes_admin.py — blueprint admin (dashboard, detail+riwayat, export XLSX).
+# routes_admin.py — blueprint admin (dashboard 3 tab, dua detail, export PDF+XLSX).
 #
-#   GET  /admin                 -> dashboard: ringkasan + list laptop (cari/sortir)
-#   GET  /admin/device/<id>     -> detail + riwayat 1 laptop
-#   GET  /admin/export.xlsx     -> export data terbaru per laptop ke Excel
-#   GET/POST /admin/login       -> login 1 password bersama (ADMIN_PASSWORD)
-#   GET  /admin/logout          -> keluar
+#   GET  /admin                       -> dashboard: 3 tab (Laptop/Karyawan/Pengadaan)
+#   GET  /admin/laptop/<device_id>    -> detail + riwayat 1 laptop
+#   GET  /admin/device/<id>           -> redirect 302 ke /admin/laptop/<id> (back-compat)
+#   GET  /admin/karyawan/<employee_id>-> detail + riwayat 1 karyawan
+#   GET  /admin/laptop/<id>/export.pdf    -> PDF laporan 1 laptop
+#   GET  /admin/karyawan/<id>/export.pdf  -> PDF laporan 1 karyawan
+#   GET  /admin/export.xlsx           -> export terbaru (sheet Laptop + Per Karyawan)
+#   GET/POST /admin/login             -> login 1 password bersama (ADMIN_PASSWORD)
+#   GET  /admin/logout                -> keluar
 #
 # Auth: 1 password bersama (env ADMIN_PASSWORD) + Flask session. Tanpa tabel user.
 
@@ -131,7 +135,10 @@ def dashboard():
             elif c["label"] == "Baterai":
                 attention["baterai_lemah"] += 1
 
-    # Cari.
+    # — TAB Pengadaan: agregat keputusan (dihitung dari semua baris armada) —
+    pengadaan = _build_pengadaan(rows, current_year)
+
+    # Cari (hanya memengaruhi tabel Laptop).
     q = (request.args.get("q") or "").strip().lower()
     if q:
         def match(r):
@@ -156,19 +163,96 @@ def dashboard():
     keyf = keyfuncs.get(sort, keyfuncs["last_seen"])
     rows.sort(key=keyf, reverse=(direction == "desc"))
 
+    # — TAB Karyawan: satu baris per karyawan = submission terbaru miliknya —
+    employees = []
+    try:
+        employees = db.latest_per_employee()
+    except AttributeError:
+        # db.latest_per_employee belum tersedia (migrasi belum jalan) — tab kosong.
+        employees = []
+
+    # Tab aktif (?view=laptop|karyawan|pengadaan).
+    view = request.args.get("view", "laptop")
+    if view not in ("laptop", "karyawan", "pengadaan"):
+        view = "laptop"
+
     return render_template("admin/dashboard.html", rows=rows, summary=summary,
-                           attention=attention,
+                           attention=attention, pengadaan=pengadaan,
+                           employees=employees, view=view, current_year=current_year,
                            q=request.args.get("q", ""), sort=sort, dir=direction,
                            wg_label=WORK_GROUP_LABEL, group_label=group_label,
                            status_label=STATUS_LABEL)
 
 
-@admin_bp.route("/device/<int:device_id>")
+def _months_since(ts):
+    """Berapa bulan (perkiraan) sejak timestamp ISO; None bila tak terbaca."""
+    if not ts:
+        return None
+    try:
+        dt = datetime.fromisoformat(str(ts).replace("Z", "").split(".")[0])
+    except (ValueError, TypeError):
+        return None
+    now = datetime.now()
+    return (now.year - dt.year) * 12 + (now.month - dt.month)
+
+
+def _build_pengadaan(rows, current_year):
+    """Agregat keputusan pengadaan (kartu actionable) dari latest_per_device().
+
+    Tiap kategori menyimpan daftar singkat unit (nama + laptop) agar bisa
+    ditindaklanjuti, bukan sekadar angka.
+    """
+    def unit(r):
+        return {
+            "device_id": r.get("device_id"),
+            "holder_name": r.get("holder_name") or "-",
+            "laptop": ((r.get("device_brand") or "-") + " "
+                       + (r.get("device_model") or "")).strip(),
+            "serial": r.get("serial_number") or r.get("device_serial") or "-",
+            "group_label": group_label(r),
+            "detail": "",
+        }
+
+    perlu_ganti, mendekati_pensiun, belum_win11, disk_lemah, kedaluwarsa = [], [], [], [], []
+    per_group = {}  # kelompok -> jumlah perlu tindakan (upgrade+replace)
+
+    for r in rows:
+        st = r.get("status")
+        if st in ("upgrade", "replace"):
+            grp = group_label(r)
+            per_group[grp] = per_group.get(grp, 0) + 1
+        if st == "replace":
+            perlu_ganti.append(unit(r))
+        eol = r.get("eol_year")
+        if eol is not None and eol <= current_year + 1:
+            u = unit(r); u["detail"] = f"Pensiun {eol}"; mendekati_pensiun.append(u)
+        if r.get("win11_ready") in (0, "0"):
+            u = unit(r)
+            u["detail"] = (r.get("win11_blockers") or "Belum memenuhi syarat").strip()
+            belum_win11.append(u)
+        dh = r.get("disk_health_pct")
+        if dh is not None and dh < 50:
+            u = unit(r); u["detail"] = f"Disk {round(dh)}%"; disk_lemah.append(u)
+        months = _months_since(r.get("submitted_at"))
+        if months is not None and months > 6:
+            u = unit(r); u["detail"] = f"{months} bln lalu"; kedaluwarsa.append(u)
+
+    return {
+        "perlu_ganti": perlu_ganti,
+        "mendekati_pensiun": mendekati_pensiun,
+        "belum_win11": belum_win11,
+        "disk_lemah": disk_lemah,
+        "kedaluwarsa": kedaluwarsa,
+        "per_group": per_group,
+    }
+
+
+@admin_bp.route("/laptop/<int:device_id>")
 @login_required
-def device_detail(device_id):
+def laptop_detail(device_id):
     data = db.device_with_history(device_id)
     if not data.get("device"):
-        return Response("Device tidak ditemukan.", status=404)
+        return Response("Laptop tidak ditemukan.", status=404)
     for s in data["submissions"]:
         s["_reasons"] = _parse_reasons(s.get("status_reasons"))
     latest = data["submissions"][0] if data["submissions"] else None
@@ -178,6 +262,74 @@ def device_detail(device_id):
                            wg_label=WORK_GROUP_LABEL, group_label=group_label,
                            status_label=STATUS_LABEL, profiles=SCORING_PROFILES,
                            insights=insights)
+
+
+@admin_bp.route("/device/<int:device_id>")
+@login_required
+def device_detail(device_id):
+    # Back-compat: slug lama -> redirect 302 ke /admin/laptop/<id>.
+    return redirect(url_for("admin.laptop_detail", device_id=device_id), code=302)
+
+
+@admin_bp.route("/karyawan/<int:employee_id>")
+@login_required
+def employee_detail(employee_id):
+    data = db.employee_with_history(employee_id)
+    if not data.get("employee"):
+        return Response("Karyawan tidak ditemukan.", status=404)
+    for s in data["submissions"]:
+        s["_reasons"] = _parse_reasons(s.get("status_reasons"))
+    latest = data["submissions"][0] if data["submissions"] else None
+    insights = build_insights(latest, current_year=datetime.now().year) if latest else None
+    return render_template("admin/employee_detail.html", employee=data["employee"],
+                           submissions=data["submissions"], latest=latest,
+                           wg_label=WORK_GROUP_LABEL, group_label=group_label,
+                           status_label=STATUS_LABEL, profiles=SCORING_PROFILES,
+                           insights=insights)
+
+
+# ---------------------------------------------------------------------------
+# Export PDF (fpdf2) — laporan per laptop & per karyawan.
+# ---------------------------------------------------------------------------
+def _ascii_filename(text, fallback):
+    """Slug nama file ASCII aman untuk header Content-Disposition."""
+    import re
+    s = (text or "").strip()
+    s = s.encode("ascii", "ignore").decode("ascii")
+    s = re.sub(r"[^A-Za-z0-9._-]+", "-", s).strip("-")
+    return s or fallback
+
+
+@admin_bp.route("/laptop/<int:device_id>/export.pdf")
+@login_required
+def laptop_export_pdf(device_id):
+    import pdf_export
+    data = db.device_with_history(device_id)
+    if not data.get("device"):
+        return Response("Laptop tidak ditemukan.", status=404)
+    latest = data["submissions"][0] if data["submissions"] else None
+    insights = build_insights(latest, current_year=datetime.now().year) if latest else None
+    pdf_bytes = pdf_export.laptop_pdf(data["device"], data["submissions"], latest, insights)
+    serial = data["device"].get("serial_number") or f"id{device_id}"
+    fname = f"laptop-{_ascii_filename(serial, 'laptop')}.pdf"
+    return Response(pdf_bytes, mimetype="application/pdf",
+                    headers={"Content-Disposition": f"attachment; filename={fname}"})
+
+
+@admin_bp.route("/karyawan/<int:employee_id>/export.pdf")
+@login_required
+def employee_export_pdf(employee_id):
+    import pdf_export
+    data = db.employee_with_history(employee_id)
+    if not data.get("employee"):
+        return Response("Karyawan tidak ditemukan.", status=404)
+    latest = data["submissions"][0] if data["submissions"] else None
+    insights = build_insights(latest, current_year=datetime.now().year) if latest else None
+    pdf_bytes = pdf_export.employee_pdf(data["employee"], data["submissions"], latest, insights)
+    nama = data["employee"].get("full_name") or f"id{employee_id}"
+    fname = f"karyawan-{_ascii_filename(nama, 'karyawan')}.pdf"
+    return Response(pdf_bytes, mimetype="application/pdf",
+                    headers={"Content-Disposition": f"attachment; filename={fname}"})
 
 
 # ---------------------------------------------------------------------------
@@ -215,13 +367,25 @@ _EXPORT_COLUMNS = [
     ("ram_speed_mhz",       "Kecepatan RAM (MHz)"),
     ("ram_usage_pct",       "Pemakaian RAM (%)"),
     ("ram_usage_gb",        "RAM Terpakai (GB)"),
+    # — Motherboard & RAM (board) —
+    ("motherboard",         "Motherboard"),
+    ("ram_slots_used",      "Slot RAM Terisi"),
+    ("ram_slots_total",     "Slot RAM Total"),
+    ("ram_max_gb",          "RAM Maksimum (GB)"),
     # — Penyimpanan & OS —
     ("ssd_gb",              "SSD (GB)"),
     ("ssd_type",            "Tipe SSD"),
     ("hdd_gb",              "HDD (GB)"),
+    ("disk_health_pct",     "Kesehatan Disk (%)"),
+    ("disk_health_raw",     "Kesehatan Disk (raw)"),
     ("os_total_gb",         "Kapasitas Disk OS (GB)"),
     ("os_free_gb",          "Sisa Disk OS (GB)"),
     ("os_name",             "Sistem Operasi"),
+    # — Keamanan & kesiapan Windows 11 —
+    ("tpm_version",         "Versi TPM"),
+    ("secure_boot",         "Secure Boot"),
+    ("win11_ready",         "Siap Windows 11"),
+    ("win11_blockers",      "Penghalang Windows 11"),
     # — Baterai —
     ("battery_pct",         "Daya Baterai saat Cek (%)"),
     ("battery_health_pct",  "Kesehatan Baterai (%)"),
@@ -266,6 +430,65 @@ def _sanitize(val):
     return s
 
 
+def _yes_no_dash(v):
+    """Map flag 1/0/None -> 'Ya'/'Tidak'/'-' untuk ekspor."""
+    if v in (1, "1"):
+        return "Ya"
+    if v in (0, "0"):
+        return "Tidak"
+    return "-"
+
+
+# Kolom sheet "Per Karyawan" (key pada baris latest_per_employee()).
+_EMPLOYEE_COLUMNS = [
+    ("emp_full_name",          "Nama"),
+    ("emp_company",            "Perusahaan"),
+    ("emp_current_position",   "Jabatan"),
+    ("_group",                 "Kelompok"),
+    ("_laptop",                "Laptop"),
+    ("device_serial",          "Serial"),
+    ("score_total",            "Skor"),
+    ("_status",                "Status"),
+    ("_employee_status",       "Status Karyawan"),
+    ("submitted_at",           "Terakhir"),
+]
+
+
+def _write_employee_sheet(wb, header_font, header_fill):
+    """Tambah sheet 'Per Karyawan' dari db.latest_per_employee()."""
+    try:
+        emps = db.latest_per_employee()
+    except AttributeError:
+        emps = []
+
+    ws = wb.create_sheet("Per Karyawan")
+    for col, (_key, label) in enumerate(_EMPLOYEE_COLUMNS, 1):
+        c = ws.cell(row=1, column=col, value=label)
+        c.font = header_font
+        c.fill = header_fill
+
+    for ri, r in enumerate(emps, 2):
+        for ci, (key, _label) in enumerate(_EMPLOYEE_COLUMNS, 1):
+            if key == "_group":
+                # Pakai kelompok karyawan terkini; fallback ke work_group submission.
+                wg = r.get("emp_current_work_group") or r.get("work_group")
+                value = WORK_GROUP_LABEL.get(wg, group_label(r))
+            elif key == "_laptop":
+                value = ((r.get("device_brand") or "") + " "
+                         + (r.get("device_model") or "")).strip() or "-"
+            elif key == "_status":
+                value = STATUS_LABEL.get(r.get("status"), r.get("status"))
+            elif key == "_employee_status":
+                value = "Aktif" if (r.get("emp_status") or "active") == "active" else "Resign"
+            else:
+                value = r.get(key)
+            ws.cell(row=ri, column=ci, value=_sanitize(value))
+
+    for col, (_k, label) in enumerate(_EMPLOYEE_COLUMNS, 1):
+        ws.column_dimensions[ws.cell(row=1, column=col).column_letter].width = max(12, len(label) + 2)
+    ws.freeze_panes = "A2"
+
+
 @admin_bp.route("/export.xlsx")
 @login_required
 def export_xlsx():
@@ -301,6 +524,10 @@ def export_xlsx():
                 value = SOURCE_LABEL.get(r.get("source"), r.get("source"))
             elif key == "battery_health_pct":
                 value = _battery_health_value(r)
+            elif key == "secure_boot":
+                value = _yes_no_dash(r.get("secure_boot"))
+            elif key == "win11_ready":
+                value = _yes_no_dash(r.get("win11_ready"))
             elif key == "_verdict":
                 value = insight["verdict"]
             elif key == "_recommendations":
@@ -313,6 +540,9 @@ def export_xlsx():
     for col, (_k, label) in enumerate(_EXPORT_COLUMNS, 1):
         ws.column_dimensions[ws.cell(row=1, column=col).column_letter].width = max(12, len(label) + 2)
     ws.freeze_panes = "A2"
+
+    # — Sheet kedua: Per Karyawan —
+    _write_employee_sheet(wb, header_font, header_fill)
 
     buf = io.BytesIO()
     wb.save(buf)

@@ -249,6 +249,134 @@ try {
     }
 } catch {}
 
+# --- Motherboard (vendor + produk) ------------------------------------------
+try {
+    $board = Get-CimInstance Win32_BaseBoard -ErrorAction Stop | Select-Object -First 1
+    if ($board) {
+        Set-Param "motherboard" ("{0} {1}" -f $board.Manufacturer, $board.Product)
+    }
+} catch {}
+
+# --- Slot RAM: total, terisi, kapasitas maksimum board ----------------------
+try {
+    $memArray = Get-CimInstance Win32_PhysicalMemoryArray -ErrorAction Stop | Select-Object -First 1
+    if ($memArray) {
+        # Jumlah slot fisik yang disediakan board
+        if ($memArray.MemoryDevices -gt 0) {
+            Set-Param "ram_slots_total" $memArray.MemoryDevices
+        }
+        # Kapasitas maksimum (MaxCapacity dalam KB -> /1MB = GB).
+        # MaxCapacityEx (bytes) lebih akurat bila MaxCapacity mentok di 0/2TB.
+        $maxGb = 0
+        if ($memArray.PSObject.Properties['MaxCapacityEx'] -and $memArray.MaxCapacityEx -gt 0) {
+            $maxGb = [math]::Round([double]$memArray.MaxCapacityEx / 1GB)
+        } elseif ($memArray.MaxCapacity -gt 0) {
+            $maxGb = [math]::Round([double]$memArray.MaxCapacity / 1MB)
+        }
+        if ($maxGb -gt 0) { Set-Param "ram_max_gb" $maxGb }
+    }
+} catch {}
+
+# Slot RAM terisi = jumlah modul fisik terpasang
+try {
+    $used = (Get-CimInstance Win32_PhysicalMemory -ErrorAction Stop | Measure-Object).Count
+    if ($used -gt 0) { Set-Param "ram_slots_used" $used }
+} catch {}
+
+# --- Kesehatan disk sistem (yang memuat C:) ---------------------------------
+# Coba StorageReliabilityCounter (Wear SSD); fallback ke HealthStatus.
+try {
+    $sysLetter = ($env:SystemDrive).TrimEnd(':')   # mis. "C"
+    $healthPct = $null; $healthRaw = $null
+    # Cari PhysicalDisk yang memuat partisi sistem
+    $sysPhysical = $null
+    try {
+        $part = Get-Partition -DriveLetter $sysLetter -ErrorAction Stop
+        $sysPhysical = Get-PhysicalDisk -ErrorAction Stop |
+            Where-Object { $_.DeviceId -eq "$($part.DiskNumber)" } | Select-Object -First 1
+    } catch {}
+    if (-not $sysPhysical) {
+        $sysPhysical = Get-PhysicalDisk -ErrorAction Stop | Select-Object -First 1
+    }
+
+    if ($sysPhysical) {
+        # 1) Wear dari StorageReliabilityCounter (khusus SSD)
+        try {
+            $rel = $sysPhysical | Get-StorageReliabilityCounter -ErrorAction Stop
+            if ($rel -and $null -ne $rel.Wear) {
+                $wear = [int]$rel.Wear
+                $healthPct = 100 - $wear
+                $healthRaw = "Wear $wear%"
+            }
+        } catch {}
+        # 2) Fallback: HealthStatus
+        if ($null -eq $healthPct) {
+            switch ("$($sysPhysical.HealthStatus)".ToLower()) {
+                "healthy"   { $healthPct = 100; $healthRaw = "Healthy" }
+                "warning"   { $healthPct = 60;  $healthRaw = "Warning" }
+                "unhealthy" { $healthPct = 20;  $healthRaw = "Unhealthy" }
+            }
+        }
+    }
+    if ($null -ne $healthPct) { Set-Param "disk_health_pct" $healthPct }
+    if ($healthRaw)           { Set-Param "disk_health_raw" $healthRaw }
+} catch {}
+
+# --- TPM: versi spesifikasi --------------------------------------------------
+try {
+    $tpm = Get-CimInstance -Namespace "root/cimv2/security/microsofttpm" `
+        -ClassName Win32_Tpm -ErrorAction Stop | Select-Object -First 1
+    if ($tpm -and $tpm.SpecVersion) {
+        # SpecVersion mis. "2.0, 0, 1.38" -> ambil angka pertama sebelum koma
+        $ver = ("$($tpm.SpecVersion)" -split ",")[0].Trim()
+        if ($ver) { Set-Param "tpm_version" $ver }
+    } else {
+        Set-Param "tpm_version" "Tidak ada"
+    }
+} catch {
+    # Namespace tak ada / TPM tak tersedia
+    Set-Param "tpm_version" "Tidak ada"
+}
+
+# --- Secure Boot -------------------------------------------------------------
+# Confirm-SecureBootUEFI: $true/$false di sistem UEFI; lempar error di BIOS legacy.
+$secureBoot = $null
+try {
+    $sb = Confirm-SecureBootUEFI -ErrorAction Stop
+    $secureBoot = if ($sb) { 1 } else { 0 }
+} catch {
+    # BIOS legacy / tidak mendukung -> anggap tidak aktif
+    $secureBoot = 0
+}
+if ($null -ne $secureBoot) { $params["secure_boot"] = $secureBoot }
+
+# --- Indikasi kesiapan Windows 11 -------------------------------------------
+# Syarat (INDIKASI, bukan cek CPU allowlist penuh):
+#   TPM mulai "2.0" AND secure_boot=1 AND ram_gb>=4 AND (ssd_gb+hdd_gb)>=64.
+try {
+    $blockers = @()
+
+    $tpmVal = if ($params.Contains("tpm_version")) { "$($params['tpm_version'])" } else { "" }
+    if (-not $tpmVal.StartsWith("2.0")) { $blockers += "TPM bukan 2.0" }
+
+    if ($secureBoot -ne 1) { $blockers += "Secure Boot tidak aktif" }
+
+    $ramGb = if ($params.Contains("ram_gb")) { [double]$params["ram_gb"] } else { 0 }
+    if ($ramGb -lt 4) { $blockers += "RAM <4GB" }
+
+    $storGb = 0
+    if ($params.Contains("ssd_gb")) { $storGb += [double]$params["ssd_gb"] }
+    if ($params.Contains("hdd_gb")) { $storGb += [double]$params["hdd_gb"] }
+    if ($storGb -lt 64) { $blockers += "Penyimpanan <64GB" }
+
+    if ($blockers.Count -eq 0) {
+        $params["win11_ready"] = 1
+    } else {
+        $params["win11_ready"] = 0
+        Set-Param "win11_blockers" ($blockers -join "; ")
+    }
+} catch {}
+
 # --- Bangun URL & buka browser ----------------------------------------------
 Add-Type -AssemblyName System.Web -ErrorAction SilentlyContinue
 

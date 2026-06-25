@@ -63,6 +63,18 @@ ram_points = clamp(round(100 * ratio), 0, 100)
 | HDD saja (tanpa SSD) | 25 |
 | Tidak terdeteksi | 50 (netral) |
 
+**Faktor kesehatan disk (`disk_health_pct`).** Bila kesehatan disk diketahui,
+poin storage dikali faktor kesehatan agar disk yang sudah aus tidak dinilai
+sebagai penyimpanan prima:
+```
+faktor = clamp(disk_health_pct / 100, 0.5, 1.0)
+storage_points = round(storage_points * faktor)
+```
+- Bila `disk_health_pct` **tidak diketahui (None)** → faktor 1.0 (netral, poin
+  tak berubah). Karena itu contoh §7 (NVMe, tanpa data kesehatan) tetap 100.
+- Faktor dibatasi minimal 0.5 supaya satu sinyal kesehatan tidak menjatuhkan
+  skor terlalu drastis (disk masih bisa dipakai sambil dijadwalkan ganti).
+
 ### 2d. Battery points
 ```
 health = battery_wh_full / battery_wh_design * 100   (bila data ada)
@@ -190,3 +202,48 @@ Hasil: **Skor 81 · Layak · pensiun ~2027**, catatan baterai 70% (masih wajar).
 - Bobot komponen (§2e) — bila ternyata RAM lebih krusial dari perkiraan.
 - Ambang status (§4a) — agar proporsi Layak/Upgrade/Ganti masuk akal.
 - Masa pakai dasar EOL (§5) — sesuai kebijakan aset perusahaan.
+
+---
+
+## 9. Sinyal tambahan (flag, bukan pengubah skor)
+Sinyal berikut **tidak** mengubah Skor Total maupun memaksa status `Ganti`.
+Mereka muncul sebagai **alasan/flag** di `status_reasons` dan sebagai komponen
+insight (`build_insights`). Alasannya: ambang status (§4a) dikalibrasi terhadap
+rumus berbobot inti (CPU/RAM/Storage/Battery). Bila sinyal-sinyal ini ikut
+menggeser skor/status, kalibrasi ambang jadi tidak stabil — sebagian sinyal
+bersifat *perawatan* (ganti disk/baterai) atau *kebijakan migrasi* (OS), bukan
+ukuran kelayakan hardware terhadap peran. Karena itu mereka dipisah sebagai flag
+actionable. (Pengecualian terkendali: **kesehatan disk** ikut mengali poin
+storage di §2c, tetapi tetap netral bila datanya tidak ada.)
+
+### 9a. Kesehatan disk (`disk_health_pct`)
+- Ikut mengali poin storage (§2c) — netral bila None.
+- Bila diketahui dan `< 50%` → flag: *"Kesehatan disk {x}% — cadangkan data &
+  pertimbangkan ganti disk"*. Tidak memaksa status `Ganti`.
+- Insight komponen **Kesehatan Disk**: `>= 70` good · `40–69` warn · `< 40` bad ·
+  None neutral.
+
+### 9b. Dukungan OS (`os_name`)
+- Helper `os_supported(os_name) -> True/False/None`:
+  - **False** → Windows 10/8.1/8/7 (dan lebih lama). Windows 10 **EOL Okt 2025**.
+  - **True** → Windows 11 atau macOS/Linux/ChromeOS modern.
+  - **None** → tak jelas / tak terdeteksi.
+- Bila False → flag: *"Windows 10 sudah habis dukungan (Okt 2025) — rencanakan
+  migrasi/ganti ke Windows 11"*.
+- Insight komponen **Dukungan OS**: True good · False bad · None neutral.
+
+### 9c. Kesiapan Windows 11 (`win11_ready`, `win11_blockers`)
+- Indikasi dari collector (TPM 2.0, Secure Boot, RAM, storage). **Bukan** cek
+  penuh allowlist CPU Microsoft.
+- Bila `win11_ready == 0` → flag: *"Belum memenuhi syarat Windows 11 (indikasi):
+  {win11_blockers}"*. Tidak memaksa status.
+- Insight komponen **Windows 11**: `1` good ("Memenuhi syarat (indikasi)") ·
+  `0` warn + blockers · None neutral (disembunyikan untuk OS yang jelas
+  non-Windows).
+
+### 9d. Headroom RAM (`ram_slots_total`, `ram_slots_used`, `ram_max_gb`)
+- Insight komponen **Headroom RAM**: good bila ada slot kosong **dan**
+  `ram_gb < ram_max_gb` ("Masih bisa tambah RAM: {used}/{total} slot, maks
+  {max}GB"); neutral bila slot penuh / sudah mentok.
+- Rekomendasi actionable bila RAM di bawah ideal peran **dan** ada headroom:
+  *"Tambah RAM hingga {ideal}GB — tersedia slot kosong"*.

@@ -109,6 +109,16 @@ if [ "$OS" = "Linux" ]; then
     [ -r /sys/class/dmi/id/product_name ] && \
         set_param "model" "$(cat /sys/class/dmi/id/product_name 2>/dev/null)"
 
+    # ---------- Motherboard (vendor + nama board) ---------------------------
+    # best-effort: gabungkan board_vendor + board_name bila terbaca
+    mb_vendor=""; mb_name=""
+    [ -r /sys/devices/virtual/dmi/id/board_vendor ] && \
+        mb_vendor="$(cat /sys/devices/virtual/dmi/id/board_vendor 2>/dev/null)"
+    [ -r /sys/devices/virtual/dmi/id/board_name ] && \
+        mb_name="$(cat /sys/devices/virtual/dmi/id/board_name 2>/dev/null)"
+    mb="$(printf '%s %s' "$mb_vendor" "$mb_name" | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')"
+    [ -n "$mb" ] && set_param "motherboard" "$mb"
+
     # ---------- CPU ---------------------------------------------------------
     if command -v lscpu >/dev/null 2>&1; then
         lscpu_out="$(LC_ALL=C lscpu 2>/dev/null)"
@@ -182,6 +192,28 @@ if [ "$OS" = "Linux" ]; then
             [ -n "$rtype" ] && set_param "ram_type" "$rtype"
             rspeed="$(printf '%s\n' "$dmi_mem" | grep -iE 'Configured Memory Speed|Configured Clock Speed|^\s*Speed:' | grep -oiE '[0-9]+ *MT/s|[0-9]+ *MHz' | grep -oE '[0-9]+' | head -1)"
             [ -n "$rspeed" ] && set_param "ram_speed_mhz" "$rspeed"
+
+            # Slot RAM terisi: jumlah modul dgn Size berupa angka (bukan "No Module Installed")
+            slots_used="$(printf '%s\n' "$dmi_mem" | grep -iE '^\s*Size:' | grep -ciE '[0-9]+ *[GM]B')"
+            [ -n "$slots_used" ] && [ "$slots_used" -gt 0 ] && set_param "ram_slots_used" "$slots_used"
+        fi
+
+        # Total slot fisik + kapasitas maksimum board (dmidecode -t 16)
+        dmi_arr="$(dmidecode -t 16 2>/dev/null)"
+        if [ -n "$dmi_arr" ]; then
+            slots_total="$(printf '%s\n' "$dmi_arr" | grep -iE 'Number Of Devices:' | head -1 | grep -oE '[0-9]+')"
+            [ -n "$slots_total" ] && [ "$slots_total" -gt 0 ] && set_param "ram_slots_total" "$slots_total"
+            # Maximum Capacity mis. "32 GB" / "64 GB" / "2 TB"
+            maxcap="$(printf '%s\n' "$dmi_arr" | grep -iE 'Maximum Capacity:' | head -1 | sed 's/^[^:]*: *//')"
+            maxnum="$(printf '%s' "$maxcap" | grep -oE '[0-9.]+' | head -1)"
+            maxunit="$(printf '%s' "$maxcap" | grep -oiE '[TG]B' | head -1)"
+            if [ -n "$maxnum" ]; then
+                if printf '%s' "$maxunit" | grep -qi 'TB'; then
+                    set_param "ram_max_gb" "$(awk -v n="$maxnum" 'BEGIN{printf "%.0f", n*1024}')"
+                else
+                    set_param "ram_max_gb" "$(awk -v n="$maxnum" 'BEGIN{printf "%.0f", n}')"
+                fi
+            fi
         fi
     fi
 
@@ -226,6 +258,25 @@ if [ "$OS" = "Linux" ]; then
         fi
         if [ "$hdd_bytes" -gt 0 ]; then
             set_param "hdd_gb" "$(awk -v b="$hdd_bytes" 'BEGIN{printf "%.0f", b/1073741824}')"
+        fi
+    fi
+
+    # ---------- Kesehatan disk (best-effort via smartctl) -------------------
+    # Hanya bila smartctl tersedia & dapat membaca disk sistem; jangan error.
+    if command -v smartctl >/dev/null 2>&1; then
+        # Tentukan device disk yang memuat root (/)
+        rootsrc="$(df / 2>/dev/null | tail -1 | awk '{print $1}')"
+        # /dev/nvme0n1p2 -> /dev/nvme0n1 ; /dev/sda1 -> /dev/sda
+        rootdev="$(printf '%s' "$rootsrc" | sed -E 's/p?[0-9]+$//')"
+        if [ -n "$rootdev" ] && [ -b "$rootdev" ]; then
+            sm_h="$(smartctl -H "$rootdev" 2>/dev/null)"
+            if printf '%s' "$sm_h" | grep -qiE 'PASSED|OK'; then
+                set_param "disk_health_pct" "100"
+                set_param "disk_health_raw" "Healthy"
+            elif printf '%s' "$sm_h" | grep -qiE 'FAILED'; then
+                set_param "disk_health_pct" "20"
+                set_param "disk_health_raw" "Unhealthy"
+            fi
         fi
     fi
 

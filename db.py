@@ -8,11 +8,16 @@
 #   init_db() -> None
 #   get_db() -> sqlite3.Connection          (koneksi per-request)
 #   find_or_create_device(serial, asset_no, mac, brand, model, os_family) -> int
+#   find_or_create_employee(full_name, company, position, work_group) -> int
 #   insert_submission(data: dict) -> int
 #   latest_per_device() -> list[dict]
-#   device_with_history(device_id: int) -> dict   {device, submissions[]}
+#   latest_per_employee() -> list[dict]
+#   device_with_history(device_id: int) -> dict     {device, submissions[]}
+#   employee_with_history(employee_id: int) -> dict  {employee, submissions[]}
 
 import os
+import re
+import shutil
 import sqlite3
 
 from flask import g
@@ -39,10 +44,30 @@ CREATE TABLE IF NOT EXISTS devices (
     admin_notes     TEXT
 );
 
+-- EMPLOYEES: satu baris per KARYAWAN. Submission = ikatan karyawan + device.
+-- Dipakai untuk menjejak resign/handover, ganti laptop, dan ganti jabatan.
+CREATE TABLE IF NOT EXISTS employees (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    full_name           TEXT NOT NULL,
+    name_key            TEXT,        -- normalisasi pencocokan: lower, spasi tunggal, trim
+    employee_code       TEXT,        -- opsional (NIK), bisa kosong
+    company             TEXT,
+    current_position    TEXT,        -- cache jabatan dari submission TERBARU
+    current_work_group  TEXT,        -- cache kelompok dari submission TERBARU
+    status              TEXT CHECK (status IN ('active','resigned')) DEFAULT 'active',
+    notes               TEXT,        -- catatan admin
+    first_seen_at       TIMESTAMP,
+    last_seen_at        TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_employees_key
+    ON employees (name_key, company);
+
 -- SUBMISSIONS: riwayat. Tiap pengisian form = 1 baris.
 CREATE TABLE IF NOT EXISTS submissions (
     id                 INTEGER PRIMARY KEY AUTOINCREMENT,
     device_id          INTEGER NOT NULL REFERENCES devices(id),
+    employee_id        INTEGER REFERENCES employees(id),
     submitted_at       TIMESTAMP NOT NULL,
     source             TEXT CHECK (source IN ('windows_script','mac_script','linux_script','manual')),
 
@@ -73,12 +98,18 @@ CREATE TABLE IF NOT EXISTS submissions (
     -- Spesifikasi: GPU
     gpu                TEXT,
 
+    -- Spesifikasi: Motherboard
+    motherboard        TEXT,         -- vendor + produk motherboard
+
     -- Spesifikasi: RAM
     ram_gb             REAL,
     ram_type           TEXT,
     ram_speed_mhz      INTEGER,
     ram_usage_pct      REAL,
     ram_usage_gb       REAL,
+    ram_slots_total    INTEGER,      -- jumlah slot RAM fisik (board)
+    ram_slots_used     INTEGER,      -- slot terisi
+    ram_max_gb         REAL,         -- kapasitas RAM maksimum board (GB)
 
     -- Spesifikasi: Storage
     ssd_gb             REAL,
@@ -87,6 +118,8 @@ CREATE TABLE IF NOT EXISTS submissions (
     disk_raw           TEXT,
     os_total_gb        REAL,
     os_free_gb         REAL,
+    disk_health_pct    REAL,         -- kesehatan disk 0-100 (100 - Wear; atau map HealthStatus)
+    disk_health_raw    TEXT,         -- teks mentah (mis. "Healthy", "Wear 4%")
 
     -- Spesifikasi: Baterai
     battery_pct        REAL,
@@ -96,6 +129,12 @@ CREATE TABLE IF NOT EXISTS submissions (
 
     -- Spesifikasi: OS
     os_name            TEXT,
+
+    -- Keamanan & kesiapan Windows 11
+    tpm_version        TEXT,         -- mis. "2.0", "1.2", "Tidak ada"
+    secure_boot        INTEGER,      -- 1=aktif/kapabel, 0=tidak, NULL=tak terdeteksi
+    win11_ready        INTEGER,      -- 1=siap (indikasi), 0=tidak, NULL=tak terdeteksi/non-Windows
+    win11_blockers     TEXT,         -- alasan tidak siap, mis. "TPM <2.0; Secure Boot mati"
 
     -- Kondisi & kelengkapan (isian manusia)
     physical_condition TEXT CHECK (physical_condition IN ('good','fair','poor')),
@@ -131,18 +170,38 @@ CREATE TABLE IF NOT EXISTS cpu_benchmarks (
 # Daftar kolom submissions yang boleh diisi lewat insert_submission().
 # (id auto, sisanya dipetakan dari dict data.)
 _SUBMISSION_COLUMNS = [
-    "device_id", "submitted_at", "source",
+    "device_id", "employee_id", "submitted_at", "source",
     "holder_name", "holder_position", "holder_company", "holder_location",
     "work_group", "work_group_other", "laptop_status",
     "hostname", "mac_address", "serial_number", "asset_no",
     "cpu_model", "cpu_cores", "cpu_threads", "cpu_arch", "cpu_speed_mhz", "cpu_passmark",
     "gpu",
+    "motherboard",
     "ram_gb", "ram_type", "ram_speed_mhz", "ram_usage_pct", "ram_usage_gb",
+    "ram_slots_total", "ram_slots_used", "ram_max_gb",
     "ssd_gb", "ssd_type", "hdd_gb", "disk_raw", "os_total_gb", "os_free_gb",
+    "disk_health_pct", "disk_health_raw",
     "battery_pct", "battery_wh_full", "battery_wh_design", "battery_health_pct",
     "os_name",
+    "tpm_version", "secure_boot", "win11_ready", "win11_blockers",
     "physical_condition", "accessories", "purchase_year", "issues",
     "score_spec", "score_load", "score_total", "status", "status_reasons", "eol_year",
+]
+
+# Kolom baru submissions yang ditambahkan via migrasi aditif (ALTER ADD COLUMN).
+# Tiap entri: (nama_kolom, definisi_tipe SQL).
+_SUBMISSION_NEW_COLUMNS = [
+    ("employee_id", "INTEGER REFERENCES employees(id)"),
+    ("motherboard", "TEXT"),
+    ("ram_slots_total", "INTEGER"),
+    ("ram_slots_used", "INTEGER"),
+    ("ram_max_gb", "REAL"),
+    ("disk_health_pct", "REAL"),
+    ("disk_health_raw", "TEXT"),
+    ("tpm_version", "TEXT"),
+    ("secure_boot", "INTEGER"),
+    ("win11_ready", "INTEGER"),
+    ("win11_blockers", "TEXT"),
 ]
 
 
@@ -185,14 +244,85 @@ def init_app(app):
 
 
 def init_db():
-    """Buat folder data/ (bila perlu) + seluruh tabel skema."""
-    os.makedirs(os.path.dirname(config.DB_PATH), exist_ok=True)
+    """Buat/sinkronkan skema secara ADITIF & idempoten (tanpa hapus data).
+
+    Langkah:
+      1. Backup file DB ke data/inventory.db.bak (bila DB sudah ada).
+      2. CREATE TABLE IF NOT EXISTS (devices, employees, submissions, dst).
+      3. Untuk tiap kolom baru submissions: cek PRAGMA table_info lalu
+         ALTER TABLE ADD COLUMN bila belum ada.
+      4. Pastikan index employees terbuat.
+      5. Backfill employee_id untuk submission yang masih NULL.
+    """
+    db_path = config.DB_PATH
+    os.makedirs(os.path.dirname(db_path), exist_ok=True)
+
+    # 1. Backup sebelum migrasi (hanya bila DB sudah ada isinya).
+    if os.path.exists(db_path):
+        try:
+            shutil.copy2(db_path, db_path + ".bak")
+        except OSError:
+            # Backup gagal (mis. izin) — jangan hentikan init, tapi lanjut hati-hati.
+            pass
+
     conn = _connect()
     try:
+        # 2. Buat tabel + index dasar (IF NOT EXISTS, aman diulang).
         conn.executescript(SCHEMA)
         conn.commit()
+
+        # 3. Migrasi aditif kolom submissions yang mungkin belum ada (DB lama).
+        existing = {
+            r["name"]
+            for r in conn.execute("PRAGMA table_info(submissions)").fetchall()
+        }
+        for col_name, col_def in _SUBMISSION_NEW_COLUMNS:
+            if col_name not in existing:
+                conn.execute(
+                    f"ALTER TABLE submissions ADD COLUMN {col_name} {col_def}"
+                )
+        conn.commit()
+
+        # 4. Pastikan index employees ada (untuk DB yang baru di-migrasi).
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_employees_key "
+            "ON employees (name_key, company)"
+        )
+        conn.commit()
+
+        # 5. Backfill employee_id dari holder_name + holder_company untuk
+        #    submission lama yang belum punya ikatan karyawan.
+        _backfill_employees(conn)
     finally:
         conn.close()
+
+
+def _backfill_employees(conn):
+    """Isi employee_id submissions yang masih NULL (migrasi data lama).
+
+    Bekerja pada koneksi `conn` (di luar konteks request). Untuk tiap submission
+    tanpa employee_id, cocokkan/buat karyawan dari holder_name + holder_company
+    + holder_position + work_group, lalu set employee_id-nya.
+    """
+    rows = conn.execute(
+        """SELECT id, holder_name, holder_company, holder_position, work_group
+           FROM submissions
+           WHERE employee_id IS NULL"""
+    ).fetchall()
+    for r in rows:
+        emp_id = _find_or_create_employee_conn(
+            conn,
+            r["holder_name"],
+            r["holder_company"],
+            r["holder_position"],
+            r["work_group"],
+        )
+        if emp_id is not None:
+            conn.execute(
+                "UPDATE submissions SET employee_id = ? WHERE id = ?",
+                (emp_id, r["id"]),
+            )
+    conn.commit()
 
 
 # ---------------------------------------------------------------------------
@@ -262,6 +392,92 @@ def find_or_create_device(serial, asset_no, mac, brand, model, os_family):
 
 
 # ---------------------------------------------------------------------------
+# PENCOCOKAN / PEMBUATAN KARYAWAN
+# ---------------------------------------------------------------------------
+def _name_key(full_name):
+    """Normalisasi nama untuk pencocokan: lower, spasi tunggal, trim.
+
+    Mengembalikan string ternormalisasi, atau None bila nama kosong.
+    """
+    key = re.sub(r"\s+", " ", (full_name or "").strip().lower())
+    return key or None
+
+
+def _find_or_create_employee_conn(conn, full_name, company=None,
+                                  position=None, work_group=None):
+    """Inti logika find_or_create_employee pada koneksi mentah `conn`.
+
+    Dipakai oleh find_or_create_employee() (request) maupun backfill (init_db).
+    Cocokkan via name_key + company; bila ada, segarkan cache jabatan/kelompok +
+    last_seen_at + status='active'. Bila tidak, INSERT karyawan baru.
+    Mengembalikan id karyawan, atau None bila nama kosong.
+    """
+    name_key = _name_key(full_name)
+    if name_key is None:
+        # Tanpa nama valid tidak bisa membentuk identitas karyawan.
+        return None
+
+    def _norm(v):
+        v = (v or "").strip()
+        return v or None
+
+    full_name = (full_name or "").strip()
+    company = _norm(company)
+    position = _norm(position)
+    work_group = _norm(work_group)
+    now = _now()
+
+    # Cocokkan via name_key + company (NULL/'' diperlakukan setara).
+    row = conn.execute(
+        """SELECT * FROM employees
+           WHERE name_key = ? AND IFNULL(company, '') = IFNULL(?, '')""",
+        (name_key, company),
+    ).fetchone()
+
+    if row is not None:
+        emp_id = row["id"]
+        # Segarkan cache jabatan/kelompok terbaru + tandai aktif kembali.
+        conn.execute(
+            """UPDATE employees SET
+                 full_name          = COALESCE(?, full_name),
+                 current_position   = COALESCE(?, current_position),
+                 current_work_group = COALESCE(?, current_work_group),
+                 status             = 'active',
+                 last_seen_at       = ?
+               WHERE id = ?""",
+            (full_name or None, position, work_group, now, emp_id),
+        )
+        conn.commit()
+        return emp_id
+
+    # Karyawan baru.
+    cur = conn.execute(
+        """INSERT INTO employees
+             (full_name, name_key, company, current_position,
+              current_work_group, status, first_seen_at, last_seen_at)
+           VALUES (?, ?, ?, ?, ?, 'active', ?, ?)""",
+        (full_name, name_key, company, position, work_group, now, now),
+    )
+    conn.commit()
+    return cur.lastrowid
+
+
+def find_or_create_employee(full_name, company=None, position=None,
+                            work_group=None):
+    """Cari karyawan via (name_key, company); bila tak ada, buat baru.
+
+    name_key = normalisasi(full_name) (lower, \\s+ -> ' ', strip).
+    Bila ditemukan: update last_seen_at + current_position + current_work_group
+    + status='active'. Bila tidak: INSERT baru (first_seen_at=last_seen_at=now).
+    Mengembalikan id karyawan.
+    """
+    db = get_db()
+    return _find_or_create_employee_conn(
+        db, full_name, company, position, work_group
+    )
+
+
+# ---------------------------------------------------------------------------
 # SUBMISSIONS
 # ---------------------------------------------------------------------------
 def insert_submission(data):
@@ -320,6 +536,8 @@ def latest_per_device():
 def device_with_history(device_id):
     """Detail 1 device + seluruh riwayat submission (terbaru dahulu).
 
+    Tiap submission menyertakan kolom `employee_id` (bagian dari SELECT *),
+    agar template bisa menaut ke /admin/karyawan/<id>.
     Mengembalikan {"device": dict|None, "submissions": list[dict]}.
     """
     db = get_db()
@@ -334,6 +552,78 @@ def device_with_history(device_id):
     ).fetchall()
     return {
         "device": dict(device) if device else None,
+        "submissions": [dict(s) for s in subs],
+    }
+
+
+# ---------------------------------------------------------------------------
+# KARYAWAN — agregat & riwayat
+# ---------------------------------------------------------------------------
+def latest_per_employee():
+    """Submission TERBARU per karyawan (untuk tab "Karyawan" dashboard).
+
+    Satu baris per employee = submission terbarunya, JOIN devices (alias
+    device_brand/device_model/device_serial seperti latest_per_device) + kolom
+    karyawan (emp_full_name, emp_company, emp_status, emp_current_position,
+    emp_current_work_group). Urut by last_seen_at karyawan (desc).
+    """
+    db = get_db()
+    rows = db.execute(
+        """
+        SELECT s.*,
+               d.serial_number     AS device_serial,
+               d.asset_no          AS device_asset_no,
+               d.brand             AS device_brand,
+               d.model             AS device_model,
+               d.os_family         AS device_os_family,
+               e.full_name          AS emp_full_name,
+               e.company            AS emp_company,
+               e.status             AS emp_status,
+               e.current_position   AS emp_current_position,
+               e.current_work_group AS emp_current_work_group,
+               e.last_seen_at       AS emp_last_seen_at
+        FROM employees e
+        JOIN submissions s ON s.id = (
+            SELECT s2.id FROM submissions s2
+            WHERE s2.employee_id = e.id
+            ORDER BY s2.submitted_at DESC, s2.id DESC
+            LIMIT 1
+        )
+        JOIN devices d ON d.id = s.device_id
+        ORDER BY e.last_seen_at DESC
+        """
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def employee_with_history(employee_id):
+    """Detail 1 karyawan + seluruh riwayat submission (terbaru dahulu).
+
+    Tiap submission di-JOIN ke devices (alias device_brand/device_model/
+    device_serial) agar bisa menaut ke laptop yang pernah dipegang.
+    Mengembalikan {"employee": dict|None, "submissions": list[dict]}.
+    """
+    db = get_db()
+    employee = db.execute(
+        "SELECT * FROM employees WHERE id = ?", (employee_id,)
+    ).fetchone()
+    subs = db.execute(
+        """
+        SELECT s.*,
+               d.serial_number AS device_serial,
+               d.asset_no      AS device_asset_no,
+               d.brand         AS device_brand,
+               d.model         AS device_model,
+               d.os_family     AS device_os_family
+        FROM submissions s
+        JOIN devices d ON d.id = s.device_id
+        WHERE s.employee_id = ?
+        ORDER BY s.submitted_at DESC, s.id DESC
+        """,
+        (employee_id,),
+    ).fetchall()
+    return {
+        "employee": dict(employee) if employee else None,
         "submissions": [dict(s) for s in subs],
     }
 

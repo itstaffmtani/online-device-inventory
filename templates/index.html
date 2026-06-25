@@ -220,19 +220,25 @@
 
           {% set groups = [ ('Identitas', [('hostname','Nama Perangkat /
           Hostname'),('serial','Nomor Seri'),('mac','MAC
-          Address'),('brand','Merek'),('model','Model')]), ('CPU',
+          Address'),('brand','Merek'),('model','Model'),('motherboard','Motherboard')]),
+          ('CPU',
           [('cpu','Model CPU / Prosesor'),('cpu_cores','Core
           Fisik'),('cpu_threads','Thread'),('cpu_arch','Arsitektur'),('cpu_speed_mhz','Kecepatan
           CPU (MHz)')]), ('RAM', [('ram_gb','RAM (GB)'),('ram_type','Tipe
           RAM'),('ram_speed_mhz','Kecepatan RAM
           (MHz)'),('ram_usage_pct','Pemakaian RAM (%)'),('ram_usage_gb','RAM
-          Terpakai (GB)')]), ('Penyimpanan & OS', [('ssd_gb','SSD
-          (GB)'),('ssd_type','Tipe SSD'),('hdd_gb','HDD (GB)'),('os','Sistem
+          Terpakai (GB)'),('ram_slots_used','Slot RAM
+          Terpakai'),('ram_slots_total','Slot RAM Total'),('ram_max_gb','RAM
+          Maksimum (GB)')]), ('Penyimpanan & OS', [('ssd_gb','SSD
+          (GB)'),('ssd_type','Tipe SSD'),('hdd_gb','HDD (GB)'),('disk_health_pct','Kesehatan
+          Disk (%)'),('disk_health_raw','Status Disk'),('os','Sistem
           Operasi'),('os_total_gb','Kapasitas Disk OS (GB)'),('os_free_gb','Sisa
           Disk OS (GB)')]), ('GPU & Baterai', [('gpu','GPU / Kartu
           Grafis'),('battery_pct','Kapasitas Baterai
           (%)'),('battery_wh_full','Kapasitas Penuh Saat Ini
-          (Wh)'),('battery_wh_design','Kapasitas Desain (Wh)')]), ] %}
+          (Wh)'),('battery_wh_design','Kapasitas Desain (Wh)')]),
+          ('Keamanan & Windows 11', [('tpm_version','TPM'),('secure_boot','Secure
+          Boot'),('win11_ready','Siap Windows 11'),('win11_blockers','Catatan Win11')]), ] %}
 
           <div class="space-y-5">
             {% for gname, fields in groups %}

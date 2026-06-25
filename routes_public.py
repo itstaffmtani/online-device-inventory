@@ -50,12 +50,25 @@ SPEC_MAP = {
     "battery_pct": "battery_pct",
     "battery_wh_full": "battery_wh_full",
     "battery_wh_design": "battery_wh_design",
+    # Spek tambahan (board, slot RAM, kesehatan disk, keamanan/firmware, kesiapan Win11).
+    "motherboard": "motherboard",
+    "ram_slots_total": "ram_slots_total",
+    "ram_slots_used": "ram_slots_used",
+    "ram_max_gb": "ram_max_gb",
+    "disk_health_pct": "disk_health_pct",
+    "disk_health_raw": "disk_health_raw",
+    "tpm_version": "tpm_version",
+    "secure_boot": "secure_boot",
+    "win11_ready": "win11_ready",
+    "win11_blockers": "win11_blockers",
 }
 
 # Kolom yang dipaksa integer / float saat simpan. (cpu_arch tetap teks.)
-_INT_COLS = {"cpu_cores", "cpu_threads", "cpu_speed_mhz", "ram_speed_mhz", "purchase_year"}
+_INT_COLS = {"cpu_cores", "cpu_threads", "cpu_speed_mhz", "ram_speed_mhz", "purchase_year",
+             "ram_slots_total", "ram_slots_used", "secure_boot", "win11_ready"}
 _FLOAT_COLS = {"ram_gb", "ram_usage_pct", "ram_usage_gb", "ssd_gb", "hdd_gb",
-               "os_total_gb", "os_free_gb", "battery_pct", "battery_wh_full", "battery_wh_design"}
+               "os_total_gb", "os_free_gb", "battery_pct", "battery_wh_full", "battery_wh_design",
+               "ram_max_gb", "disk_health_pct"}
 
 _OS_FAMILY_SOURCE = {"windows": "windows_script", "macos": "mac_script", "linux": "linux_script"}
 
@@ -205,6 +218,16 @@ def api_submit():
         os_family=os_family,
     )
     sub["device_id"] = device_id
+
+    # 5b. Cocokkan / buat KARYAWAN (by name_key + company). Tiap submission =
+    #     ikatan 1 karyawan + 1 device pada satu waktu (lihat docs/architecture.md).
+    emp_id = db.find_or_create_employee(
+        holder_name,
+        sub.get("holder_company"),
+        sub.get("holder_position"),
+        work_group,
+    )
+    sub["employee_id"] = emp_id
 
     # 6. Skor kelayakan. Resolusi PassMark CPU dulu agar kolom cache cpu_passmark
     #    tersimpan; score_submission akan memakai nilai numerik ini apa adanya.
