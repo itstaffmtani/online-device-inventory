@@ -8,8 +8,10 @@
 # ACUAN NAMA FIELD: docs/schema.dbml (kolom DB) & docs/architecture.md (param URL).
 # Pemetaan param-URL/form -> kolom DB dipusatkan di SPEC_MAP agar 1 sumber kebenaran.
 
+import io
 import json
 import os
+import zipfile
 from datetime import datetime
 
 from flask import (Blueprint, Response, current_app, jsonify, render_template,
@@ -290,6 +292,27 @@ def download_collector(os_name):
                 _collector_with_base_url(fp),
                 mimetype="application/octet-stream",
                 headers={"Content-Disposition": "attachment; filename=Check-Laptop.bat"},
+            )
+    # Mac: file .command bisa di-double-click dari Finder (padanan .bat Windows).
+    # Isinya sama dgn check-laptop.sh, hanya beda nama supaya Finder menjalankannya.
+    # Dibungkus ZIP karena izin eksekusi (chmod +x) hilang saat file diunduh
+    # langsung; di dalam ZIP izin tsb tersimpan & ikut saat di-extract, sehingga
+    # double-click langsung jalan tanpa perlu Terminal.
+    if os_name in ("mac-command", "command", "mac-klik"):
+        fp = os.path.join(BASE_DIR, "mac-linux", "check-laptop.sh")
+        if os.path.exists(fp):
+            data = _collector_with_base_url(fp)
+            info = zipfile.ZipInfo("Check-Laptop.command")
+            # 0o755 (rwxr-xr-x) di 16 bit atas + flag "Unix" agar +x terbawa.
+            info.external_attr = (0o755 << 16) | 0x10  # 0x10 = arsip Unix
+            info.create_system = 3  # 3 = Unix
+            buf = io.BytesIO()
+            with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+                zf.writestr(info, data)
+            return Response(
+                buf.getvalue(),
+                mimetype="application/zip",
+                headers={"Content-Disposition": "attachment; filename=Check-Laptop.zip"},
             )
     if os_name in ("mac", "macos", "linux", "mac-linux"):
         fp = os.path.join(BASE_DIR, "mac-linux", "check-laptop.sh")
