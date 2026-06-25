@@ -43,6 +43,27 @@
         </div>
     </div>
 
+    <!-- Insight agregat -->
+    {% if summary.total %}
+    <div class="bg-white rounded-xl border border-slate-200 p-4 mb-4 flex flex-wrap items-center gap-x-6 gap-y-2">
+        <div class="flex items-center gap-2">
+            <span class="flex items-center justify-center w-8 h-8 rounded-lg bg-indigo-50 text-indigo-600">
+                <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 18v-5.25m0 0a6.01 6.01 0 0 0 1.5-.189m-1.5.189a6.01 6.01 0 0 1-1.5-.189m3.75 7.478a12.06 12.06 0 0 1-4.5 0m3.75 2.383a14.406 14.406 0 0 1-3 0M14.25 18v-.192c0-.983.658-1.823 1.508-2.316a7.5 7.5 0 1 0-7.517 0c.85.493 1.509 1.333 1.509 2.316V18"/></svg>
+            </span>
+            <div>
+                <div class="text-xs text-slate-400">Perlu tindakan</div>
+                <div class="font-bold text-slate-800">{{ attention.need_action }} dari {{ summary.total }} laptop</div>
+            </div>
+        </div>
+        <div class="text-sm text-slate-600 flex flex-wrap gap-x-5 gap-y-1">
+            {% if attention.ram_kurang %}<span><b class="text-rose-600">{{ attention.ram_kurang }}</b> RAM di bawah minimum</span>{% endif %}
+            {% if attention.belum_ssd %}<span><b class="text-rose-600">{{ attention.belum_ssd }}</b> belum pakai SSD</span>{% endif %}
+            {% if attention.baterai_lemah %}<span><b class="text-rose-600">{{ attention.baterai_lemah }}</b> baterai lemah (&lt;60%)</span>{% endif %}
+            {% if not attention.ram_kurang and not attention.belum_ssd and not attention.baterai_lemah %}<span class="text-emerald-600 font-medium">Tidak ada masalah hardware kritis terdeteksi.</span>{% endif %}
+        </div>
+    </div>
+    {% endif %}
+
     <!-- Cari & sortir -->
     <form method="GET" class="flex flex-wrap gap-2 mb-4">
         <input type="text" name="q" value="{{ q }}" placeholder="Cari nama / serial / merk / kelompok..." class="flex-1 min-w-[220px] px-4 py-2 rounded-lg border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20">
@@ -70,6 +91,7 @@
                     <th class="px-4 py-3">Serial / Asset</th>
                     <th class="px-4 py-3 text-center">Skor</th>
                     <th class="px-4 py-3 text-center">Status</th>
+                    <th class="px-4 py-3">Catatan utama</th>
                     <th class="px-4 py-3"></th>
                 </tr>
             </thead>
@@ -88,10 +110,17 @@
                             {{ status_label.get(st, st or '—') }}
                         </span>
                     </td>
+                    <td class="px-4 py-3 text-xs text-slate-500 max-w-[220px]">
+                        {% if r._insight and r._insight.recommendations %}
+                        <span class="line-clamp-2">{{ r._insight.recommendations[0] }}</span>
+                        {% else %}
+                        <span class="text-emerald-600">—</span>
+                        {% endif %}
+                    </td>
                     <td class="px-4 py-3 text-right"><a href="{{ url_for('admin.device_detail', device_id=r.device_id) }}" class="text-indigo-600 hover:underline text-xs font-medium">Detail →</a></td>
                 </tr>
                 {% else %}
-                <tr><td colspan="7" class="px-4 py-10 text-center text-slate-400">Belum ada data.</td></tr>
+                <tr><td colspan="8" class="px-4 py-10 text-center text-slate-400">Belum ada data.</td></tr>
                 {% endfor %}
             </tbody>
         </table>

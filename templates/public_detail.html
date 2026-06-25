@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Laporan Laptop — {{ latest.holder_name or device.serial_number or 'MTani' }}</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+      body { font-family: system-ui, sans-serif; }
+      @media print {
+        .no-print { display: none !important; }
+        body { background: #fff; }
+        .print-card { border-color: #e2e8f0 !important; box-shadow: none !important; break-inside: avoid; }
+        @page { margin: 1.2cm; }
+      }
+    </style>
+</head>
+<body class="bg-slate-50 min-h-screen text-slate-800">
+<div class="container mx-auto px-4 py-8 max-w-3xl">
+
+    {% if not latest %}
+    <div class="bg-white rounded-2xl border border-slate-200 p-10 text-center">
+        <h1 class="text-xl font-bold text-slate-900 mb-2">Belum ada data</h1>
+        <p class="text-slate-500">Laptop ini belum memiliki hasil pengisian.</p>
+    </div>
+    {% else %}
+
+    {% set tone_dot = {'good':'bg-emerald-500','warn':'bg-amber-500','bad':'bg-rose-500','neutral':'bg-slate-400'} %}
+    {% set tone_txt = {'good':'text-emerald-700','warn':'text-amber-700','bad':'text-rose-700','neutral':'text-slate-600'} %}
+    {% set head_bg = {'good':'bg-emerald-50 border-emerald-200 text-emerald-800','warn':'bg-amber-50 border-amber-200 text-amber-800','bad':'bg-rose-50 border-rose-200 text-rose-800','neutral':'bg-slate-50 border-slate-200 text-slate-700'} %}
+    {% set st = latest.status %}
+
+    <!-- Action bar -->
+    <div class="flex items-center justify-between gap-3 mb-4 no-print">
+        <div class="text-sm text-slate-500">Laporan Kelayakan Laptop · MTani</div>
+        <button onclick="window.print()" class="inline-flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium px-4 py-2 rounded-lg">
+            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="1.7" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M6.72 13.829c-.24.03-.48.062-.72.096m.72-.096a42.415 42.415 0 0 1 10.56 0m-10.56 0L6.34 18m10.94-4.171c.24.03.48.062.72.096m-.72-.096L17.66 18m0 0 .229 2.523a1.125 1.125 0 0 1-1.12 1.227H7.231c-.662 0-1.18-.568-1.12-1.227L6.34 18m11.318 0h1.091A2.25 2.25 0 0 0 21 15.75V9.456c0-1.081-.768-2.015-1.837-2.175a48.055 48.055 0 0 0-1.913-.247M6.34 18H5.25A2.25 2.25 0 0 1 3 15.75V9.456c0-1.081.768-2.015 1.837-2.175a48.041 48.041 0 0 1 1.913-.247"/></svg>
+            Cetak / Simpan PDF
+        </button>
+    </div>
+
+    <!-- Header + skor -->
+    <div class="bg-white rounded-2xl border border-slate-200 p-6 mb-4 print-card">
+        <div class="flex items-start justify-between flex-wrap gap-4">
+            <div>
+                <div class="text-xs text-slate-400 uppercase font-semibold mb-1">Laporan Kelayakan Laptop</div>
+                <h1 class="text-2xl font-bold text-slate-900">{{ device.brand or 'Laptop' }} {{ device.model or '' }}</h1>
+                <p class="text-sm text-slate-500 mt-1">
+                    {% if latest.holder_name %}{{ latest.holder_name }}{% endif %}
+                    {% if latest.holder_company %} · {{ latest.holder_company }}{% endif %}
+                </p>
+                <p class="text-xs text-slate-400 font-mono mt-1">
+                    SN: {{ device.serial_number or '—' }}{% if device.asset_no %} · Aset: {{ device.asset_no }}{% endif %}
+                </p>
+            </div>
+            <div class="text-right shrink-0">
+                <div class="text-4xl font-extrabold text-indigo-600">{{ latest.score_total if latest.score_total is not none else '—' }}</div>
+                <div class="text-xs text-slate-400">dari 100</div>
+                <span class="inline-block mt-1 px-2.5 py-0.5 rounded-full text-xs font-semibold
+                    {% if st=='eligible' %}bg-emerald-50 text-emerald-700{% elif st=='upgrade' %}bg-amber-50 text-amber-700{% elif st=='replace' %}bg-rose-50 text-rose-700{% else %}bg-slate-100 text-slate-500{% endif %}">
+                    {% if st=='eligible' %}Layak{% elif st=='upgrade' %}Perlu Upgrade{% elif st=='replace' %}Sebaiknya Ganti{% else %}—{% endif %}
+                </span>
+            </div>
+        </div>
+
+        {% if insights %}
+        <div class="rounded-xl border {{ head_bg[insights.tone] }} p-3 mt-4 text-sm font-semibold">{{ insights.verdict }}</div>
+        {% endif %}
+
+        <!-- Breakdown skor + standar -->
+        <div class="flex flex-wrap items-end gap-5 mt-4">
+            <div class="flex gap-4 text-sm">
+                <div><div class="text-xs text-slate-400">Spek</div><div class="font-bold text-lg">{{ latest.score_spec if latest.score_spec is not none else '—' }}</div></div>
+                <div><div class="text-xs text-slate-400">Beban</div><div class="font-bold text-lg">{{ latest.score_load if latest.score_load is not none else '—' }}</div></div>
+                {% if latest.eol_year %}<div><div class="text-xs text-slate-400">Est. Pensiun</div><div class="font-bold text-lg">{{ latest.eol_year }}</div></div>{% endif %}
+            </div>
+            <div class="flex gap-1.5 flex-wrap">
+                <span class="px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-100 text-[10px] font-semibold">≥70 Layak</span>
+                <span class="px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-100 text-[10px] font-semibold">45–69 Upgrade</span>
+                <span class="px-2 py-0.5 rounded-full bg-rose-50 text-rose-700 border border-rose-100 text-[10px] font-semibold">≤44 Ganti</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Insight -->
+    {% if insights %}
+    <div class="bg-white rounded-2xl border border-slate-200 p-6 mb-4 print-card">
+        <h2 class="text-xs font-bold uppercase text-slate-400 mb-3">Penjelasan & Rekomendasi</h2>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-4">
+            <div>
+                <div class="text-xs text-slate-400 font-semibold mb-2">Kondisi tiap komponen</div>
+                <ul class="space-y-2">
+                    {% for c in insights.components %}
+                    <li class="flex gap-2 items-start text-sm">
+                        <span class="w-2 h-2 rounded-full {{ tone_dot[c.tone] }} mt-1.5 shrink-0"></span>
+                        <span><span class="font-semibold {{ tone_txt[c.tone] }}">{{ c.label }}:</span> <span class="text-slate-600">{{ c.text }}</span></span>
+                    </li>
+                    {% endfor %}
+                </ul>
+            </div>
+            <div>
+                <div class="text-xs text-slate-400 font-semibold mb-2">Saran tindakan</div>
+                {% if insights.recommendations %}
+                <ul class="text-sm text-slate-700 space-y-1.5">
+                    {% for r in insights.recommendations %}
+                    <li class="flex gap-1.5 items-start"><span class="text-indigo-500 mt-0.5 shrink-0">→</span><span>{{ r }}</span></li>
+                    {% endfor %}
+                </ul>
+                {% else %}
+                <p class="text-sm text-slate-400">Tidak ada saran khusus.</p>
+                {% endif %}
+                {% if insights.eol_text %}
+                <p class="text-xs text-slate-500 mt-3 border-t border-slate-100 pt-2">{{ insights.eol_text }}</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- Spesifikasi ringkas -->
+    <div class="bg-white rounded-2xl border border-slate-200 p-6 mb-4 print-card">
+        <h2 class="text-xs font-bold uppercase text-slate-400 mb-4">Spesifikasi</h2>
+        <dl class="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-2.5 text-sm">
+            <div class="flex justify-between gap-2 border-b border-slate-50 pb-2">
+                <dt class="text-slate-500">CPU</dt>
+                <dd class="font-medium text-right">{{ latest.cpu_model or '—' }}</dd>
+            </div>
+            <div class="flex justify-between gap-2 border-b border-slate-50 pb-2">
+                <dt class="text-slate-500">RAM</dt>
+                <dd class="font-medium text-right">{{ latest.ram_gb or '—' }} GB{% if latest.ram_type %} {{ latest.ram_type }}{% endif %}</dd>
+            </div>
+            <div class="flex justify-between gap-2 border-b border-slate-50 pb-2">
+                <dt class="text-slate-500">Penyimpanan</dt>
+                <dd class="font-medium text-right">
+                    {% if latest.ssd_gb %}{{ latest.ssd_gb }} GB SSD{% if latest.ssd_type %} ({{ latest.ssd_type }}){% endif %}{% endif %}
+                    {% if latest.hdd_gb %}{% if latest.ssd_gb %} + {% endif %}{{ latest.hdd_gb }} GB HDD{% endif %}
+                    {% if not latest.ssd_gb and not latest.hdd_gb %}—{% endif %}
+                </dd>
+            </div>
+            <div class="flex justify-between gap-2 border-b border-slate-50 pb-2">
+                <dt class="text-slate-500">GPU</dt>
+                <dd class="font-medium text-right">{{ latest.gpu or '—' }}</dd>
+            </div>
+            <div class="flex justify-between gap-2 border-b border-slate-50 pb-2">
+                <dt class="text-slate-500">Sistem Operasi</dt>
+                <dd class="font-medium text-right">{{ latest.os_name or '—' }}</dd>
+            </div>
+            <div class="flex justify-between gap-2 border-b border-slate-50 pb-2">
+                <dt class="text-slate-500">Kesehatan Baterai</dt>
+                <dd class="font-medium text-right">
+                    {% if latest.battery_health_pct is not none %}{{ latest.battery_health_pct|round(0)|int }}%
+                    {% elif latest.battery_wh_full and latest.battery_wh_design and latest.battery_wh_design > 0 %}{{ (latest.battery_wh_full / latest.battery_wh_design * 100)|round(0)|int }}%
+                    {% else %}—{% endif %}
+                </dd>
+            </div>
+            <div class="flex justify-between gap-2 border-b border-slate-50 pb-2">
+                <dt class="text-slate-500">Tahun Pembelian</dt>
+                <dd class="font-medium text-right">{{ latest.purchase_year or '—' }}</dd>
+            </div>
+            <div class="flex justify-between gap-2 border-b border-slate-50 pb-2">
+                <dt class="text-slate-500">Kondisi Fisik</dt>
+                <dd class="font-medium text-right">
+                    {% if latest.physical_condition == 'good' %}Baik
+                    {% elif latest.physical_condition == 'fair' %}Cukup
+                    {% elif latest.physical_condition == 'poor' %}Kurang
+                    {% else %}—{% endif %}
+                </dd>
+            </div>
+        </dl>
+    </div>
+
+    <!-- Data pemegang -->
+    <div class="bg-white rounded-2xl border border-slate-200 p-6 mb-4 print-card">
+        <h2 class="text-xs font-bold uppercase text-slate-400 mb-4">Data Pemegang</h2>
+        <dl class="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-2.5 text-sm">
+            <div class="flex justify-between gap-2"><dt class="text-slate-500">Nama</dt><dd class="font-medium text-right">{{ latest.holder_name or '—' }}</dd></div>
+            <div class="flex justify-between gap-2"><dt class="text-slate-500">Jabatan</dt><dd class="font-medium text-right">{{ latest.holder_position or '—' }}</dd></div>
+            <div class="flex justify-between gap-2"><dt class="text-slate-500">Perusahaan</dt><dd class="font-medium text-right">{{ latest.holder_company or '—' }}</dd></div>
+            <div class="flex justify-between gap-2"><dt class="text-slate-500">Lokasi</dt><dd class="font-medium text-right">{{ latest.holder_location or '—' }}</dd></div>
+            <div class="flex justify-between gap-2">
+                <dt class="text-slate-500">Status Kepemilikan</dt>
+                <dd class="font-medium text-right">
+                    {% if latest.laptop_status == 'office_inventory' %}Inventaris Kantor
+                    {% elif latest.laptop_status == 'personal' %}Milik Pribadi
+                    {% else %}—{% endif %}
+                </dd>
+            </div>
+            <div class="flex justify-between gap-2"><dt class="text-slate-500">Kelengkapan</dt><dd class="font-medium text-right text-xs">{{ latest.accessories or '—' }}</dd></div>
+        </dl>
+        {% if latest.issues and latest.issues != 'Tidak ada' %}
+        <div class="mt-3 pt-3 border-t border-slate-100">
+            <div class="text-xs text-slate-500 mb-1">Kerusakan / Keluhan</div>
+            <div class="text-sm bg-rose-50 text-rose-700 rounded-lg p-2">{{ latest.issues }}</div>
+        </div>
+        {% endif %}
+    </div>
+
+    <p class="text-xs text-slate-400 text-center mt-4">
+        Laporan dihasilkan dari Sistem Pendataan & Uji Kelayakan Laptop MTani ·
+        Data per {{ latest.submitted_at or '—' }}
+    </p>
+
+    {% endif %}
+</div>
+</body>
+</html>

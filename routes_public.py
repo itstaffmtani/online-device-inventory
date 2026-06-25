@@ -16,7 +16,8 @@ from flask import (Blueprint, Response, current_app, jsonify, render_template,
                    request)
 
 import db
-from scoring import PASSMARK_PER_THREAD, cpu_passmark, score_submission
+from scoring import (PASSMARK_PER_THREAD, PROFILES, build_insights,
+                     cpu_passmark, score_submission)
 
 public_bp = Blueprint("public", __name__)
 
@@ -115,6 +116,31 @@ def thank_you():
 
 
 # ---------------------------------------------------------------------------
+# GET /laptop/<id>  — halaman publik laporan 1 laptop (untuk dibagikan ke
+# pemegang). Read-only, tanpa login. Catatan: ID urut bisa ditebak — data ini
+# bukan rahasia tinggi (lihat docs/architecture.md §Keamanan).
+# ---------------------------------------------------------------------------
+@public_bp.route("/laptop/<int:device_id>")
+def public_detail(device_id):
+    data = db.device_with_history(device_id)
+    device = data.get("device")
+    if not device:
+        return Response("Laptop tidak ditemukan.", status=404)
+    latest = data["submissions"][0] if data["submissions"] else None
+    insights = build_insights(latest, current_year=datetime.now().year) if latest else None
+    reasons = []
+    if latest and latest.get("status_reasons"):
+        try:
+            val = json.loads(latest["status_reasons"])
+            reasons = val if isinstance(val, list) else [str(val)]
+        except (ValueError, TypeError):
+            reasons = [latest["status_reasons"]]
+    return render_template("public_detail.html", device=device, latest=latest,
+                           insights=insights, reasons=reasons,
+                           profile=PROFILES.get(latest.get("work_group")) if latest else None)
+
+
+# ---------------------------------------------------------------------------
 # POST /api/submit
 # ---------------------------------------------------------------------------
 @public_bp.route("/api/submit", methods=["POST"])
@@ -195,6 +221,10 @@ def api_submit():
     # 7. Simpan submission.
     submission_id = db.insert_submission(sub)
 
+    profile_key = work_group if work_group in PROFILES else "admin"
+    profile_data = PROFILES[profile_key]
+    insights = build_insights(sub, current_year=datetime.now().year)
+
     return jsonify(
         ok=True,
         device_id=device_id,
@@ -205,6 +235,10 @@ def api_submit():
         status=result["status"],
         status_reasons=result["status_reasons"],
         eol_year=result["eol_year"],
+        work_group=work_group,
+        ram_usage_pct=sub.get("ram_usage_pct"),
+        profile=profile_data,
+        insights=insights,
     )
 
 

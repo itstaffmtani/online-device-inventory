@@ -59,6 +59,13 @@ PASSMARK_PER_THREAD = 1800
 
 LABEL = {"eligible": "Layak", "upgrade": "Upgrade", "replace": "Ganti"}
 
+# Nama tampilan kelompok kerja (untuk teks insight). 'other' pakai work_group_other.
+WORK_GROUP_DISPLAY = {
+    "field": "Lapangan/Mobilitas", "admin": "Administrasi", "finance": "Keuangan",
+    "data_processing": "Pengolahan Data", "management": "Manajemen",
+    "it": "IT/Development", "other": "Lainnya",
+}
+
 
 # ---------------------------------------------------------------------------
 # Util numerik
@@ -351,6 +358,166 @@ def score_submission(sub: dict, current_year: int) -> dict:
         "status": status,
         "status_reasons": reasons,
         "eol_year": eol_year,
+    }
+
+
+# ---------------------------------------------------------------------------
+# INSIGHT — interpretasi manusiawi dari skor & spek (untuk UI & ringkasan).
+# Tidak menghitung ulang skor; membaca hasil score_submission yang sudah ada di
+# `sub` (score_*, status, eol_year) + spek mentah. Aman pada baris DB mana pun.
+# ---------------------------------------------------------------------------
+def _fmt_int(n):
+    """Format angka ribuan gaya Indonesia (titik). Mis. 16000 -> '16.000'."""
+    try:
+        return f"{int(round(float(n))):,}".replace(",", ".")
+    except (TypeError, ValueError):
+        return str(n)
+
+
+def _fmt_gb(n):
+    """RAM/penyimpanan: buang desimal bila bulat. Mis. 16.0 -> '16'."""
+    v = _num(n)
+    if v is None:
+        return "?"
+    return str(int(v)) if v == int(v) else str(v)
+
+
+def _group_display(sub):
+    wg = sub.get("work_group")
+    if wg == "other" and (sub.get("work_group_other") or "").strip():
+        return sub["work_group_other"].strip()
+    return WORK_GROUP_DISPLAY.get(wg, wg or "-")
+
+
+def build_insights(sub: dict, current_year: int = None) -> dict:
+    """Kembalikan dict insight siap-tampil:
+        {verdict, tone, components:[{label,tone,text}], recommendations:[str],
+         eol_text}
+    tone ∈ {'good','warn','bad','neutral'}.
+    """
+    group = sub.get("work_group") if sub.get("work_group") in PROFILES else DEFAULT_PROFILE
+    profile = PROFILES[group]
+    grp = _group_display(sub)
+    status = sub.get("status")
+
+    components = []
+    recommendations = []
+
+    # — CPU —
+    passmark = _num(sub.get("cpu_passmark")) or 0
+    if passmark <= 0:
+        components.append({"label": "CPU", "tone": "neutral", "text": "Skor CPU belum tersedia."})
+    elif passmark >= profile["cpu_ideal"]:
+        components.append({"label": "CPU", "tone": "good",
+            "text": f"CPU bertenaga — di atas standar ideal kelompok {grp} "
+                    f"({_fmt_int(passmark)} vs ideal {_fmt_int(profile['cpu_ideal'])} PassMark)."})
+    elif passmark >= profile["cpu_floor"]:
+        components.append({"label": "CPU", "tone": "good",
+            "text": f"CPU memadai untuk {grp} "
+                    f"({_fmt_int(passmark)} PassMark, ideal {_fmt_int(profile['cpu_ideal'])})."})
+    else:
+        components.append({"label": "CPU", "tone": "bad",
+            "text": f"CPU di bawah batas minimum {grp} "
+                    f"({_fmt_int(passmark)} vs minimum {_fmt_int(profile['cpu_floor'])} PassMark)."})
+        recommendations.append("CPU di bawah kebutuhan peran — pertimbangkan ganti unit.")
+
+    # — RAM —
+    ram_gb = _num(sub.get("ram_gb")) or 0
+    if ram_gb <= 0:
+        components.append({"label": "RAM", "tone": "neutral", "text": "Kapasitas RAM belum tersedia."})
+    elif ram_gb >= profile["ram_ideal"]:
+        components.append({"label": "RAM", "tone": "good",
+            "text": f"RAM {_fmt_gb(ram_gb)}GB sesuai ideal ({profile['ram_ideal']}GB) untuk {grp}."})
+    elif ram_gb >= profile["ram_min"]:
+        components.append({"label": "RAM", "tone": "warn",
+            "text": f"RAM {_fmt_gb(ram_gb)}GB memenuhi minimum, namun di bawah ideal {profile['ram_ideal']}GB."})
+        recommendations.append(f"Tambah RAM hingga {profile['ram_ideal']}GB untuk performa ideal.")
+    else:
+        components.append({"label": "RAM", "tone": "bad",
+            "text": f"RAM {_fmt_gb(ram_gb)}GB di bawah minimum {profile['ram_min']}GB untuk {grp}."})
+        recommendations.append(f"Tambah RAM minimal {profile['ram_min']}GB.")
+
+    # — Penyimpanan —
+    sto_pts, has_ssd, has_hdd = _storage_points(sub)
+    ssd_type = (sub.get("ssd_type") or "").lower()
+    if has_ssd and "nvme" in ssd_type:
+        components.append({"label": "Penyimpanan", "tone": "good", "text": "Penyimpanan SSD NVMe (sangat cepat)."})
+    elif has_ssd:
+        components.append({"label": "Penyimpanan", "tone": "good", "text": "Sudah menggunakan SSD."})
+    elif has_hdd:
+        components.append({"label": "Penyimpanan", "tone": "bad",
+            "text": "Masih memakai HDD — jauh lebih lambat dari SSD."})
+        recommendations.append("Ganti penyimpanan ke SSD untuk lonjakan kecepatan terbesar.")
+    else:
+        components.append({"label": "Penyimpanan", "tone": "neutral", "text": "Tipe penyimpanan belum terdeteksi."})
+
+    # — Baterai —
+    health = _battery_health(sub)
+    if health is None:
+        components.append({"label": "Baterai", "tone": "neutral", "text": "Data kesehatan baterai tidak tersedia."})
+    elif health >= 80:
+        components.append({"label": "Baterai", "tone": "good", "text": f"Baterai sehat ({round(health)}%)."})
+    elif health >= 60:
+        components.append({"label": "Baterai", "tone": "warn", "text": f"Baterai mulai menurun ({round(health)}%)."})
+    else:
+        components.append({"label": "Baterai", "tone": "bad", "text": f"Baterai lemah ({round(health)}%)."})
+        recommendations.append("Pertimbangkan ganti baterai.")
+
+    # — Beban RAM saat pengecekan —
+    pct = _num(sub.get("ram_usage_pct"))
+    if pct is None:
+        components.append({"label": "Beban", "tone": "neutral", "text": "Beban RAM saat pengecekan tidak tercatat."})
+    elif pct <= 60:
+        components.append({"label": "Beban", "tone": "good", "text": f"Beban RAM saat dicek ringan ({round(pct)}%)."})
+    elif pct <= 80:
+        components.append({"label": "Beban", "tone": "warn", "text": f"Beban RAM saat dicek sedang ({round(pct)}%)."})
+    else:
+        components.append({"label": "Beban", "tone": "bad",
+            "text": f"Beban RAM saat dicek tinggi ({round(pct)}%) — multitasking terasa berat."})
+
+    # — Penyimpanan OS hampir penuh —
+    os_free = _num(sub.get("os_free_gb"))
+    if os_free is not None and os_free < 20:
+        recommendations.append("Penyimpanan sistem hampir penuh — bersihkan atau tambah kapasitas.")
+
+    # — Kondisi fisik & keluhan (catatan perawatan) —
+    if sub.get("physical_condition") == "poor":
+        recommendations.append("Kondisi fisik dilaporkan kurang — perlu pemeriksaan.")
+    issues = (sub.get("issues") or "").strip()
+    if issues and issues.lower() != "tidak ada":
+        recommendations.append(f"Keluhan dilaporkan: {issues}")
+
+    # — Verdict + tone headline —
+    if status == "eligible":
+        verdict = f"Laptop ini layak digunakan untuk kelompok {grp}."
+        tone = "good"
+    elif status == "upgrade":
+        verdict = f"Laptop ini masih dapat digunakan untuk {grp}, tetapi perlu peningkatan."
+        tone = "warn"
+    elif status == "replace":
+        verdict = f"Laptop ini kurang layak untuk {grp} dan sebaiknya diganti."
+        tone = "bad"
+    else:
+        verdict = "Penilaian belum tersedia."
+        tone = "neutral"
+
+    if not recommendations and status == "eligible":
+        recommendations.append("Tidak ada tindakan mendesak — laptop dalam kondisi baik untuk perannya.")
+
+    # — EOL —
+    eol_year = sub.get("eol_year")
+    eol_text = None
+    if status == "replace" or (eol_year and current_year and eol_year <= current_year):
+        eol_text = "Sudah melewati estimasi masa pakai — prioritaskan penggantian."
+    elif eol_year:
+        eol_text = f"Estimasi layak dipakai hingga sekitar {eol_year}."
+
+    return {
+        "verdict": verdict,
+        "tone": tone,
+        "components": components,
+        "recommendations": recommendations,
+        "eol_text": eol_text,
     }
 
 

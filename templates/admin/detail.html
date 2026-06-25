@@ -5,91 +5,498 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Detail Laptop — Inventaris MTani</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <style>body { font-family: system-ui, sans-serif; }</style>
+    <style>
+      body { font-family: system-ui, sans-serif; }
+      @media print {
+        .no-print { display: none !important; }
+        body { background: #fff; }
+        .print-border { border-color: #e2e8f0 !important; box-shadow: none !important; }
+      }
+    </style>
 </head>
 <body class="bg-slate-50 min-h-screen text-slate-800">
-<div class="container mx-auto px-4 py-8 max-w-4xl">
+<div class="container mx-auto px-4 py-8 max-w-5xl">
 
-    <a href="{{ url_for('admin.dashboard') }}" class="text-sm text-indigo-600 hover:underline">← Kembali ke dashboard</a>
+    <div class="flex items-center justify-between gap-3 flex-wrap no-print">
+        <a href="{{ url_for('admin.dashboard') }}" class="text-sm text-indigo-600 hover:underline">← Kembali ke dashboard</a>
+        <div class="flex items-center gap-2">
+            <button onclick="window.print()" class="inline-flex items-center gap-1.5 border border-slate-200 bg-white text-slate-600 text-xs font-medium px-3 py-1.5 rounded-lg hover:bg-slate-50">
+                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="1.6" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M6.72 13.829c-.24.03-.48.062-.72.096m.72-.096a42.415 42.415 0 0 1 10.56 0m-10.56 0L6.34 18m10.94-4.171c.24.03.48.062.72.096m-.72-.096L17.66 18m0 0 .229 2.523a1.125 1.125 0 0 1-1.12 1.227H7.231c-.662 0-1.18-.568-1.12-1.227L6.34 18m11.318 0h1.091A2.25 2.25 0 0 0 21 15.75V9.456c0-1.081-.768-2.015-1.837-2.175a48.055 48.055 0 0 0-1.913-.247M6.34 18H5.25A2.25 2.25 0 0 1 3 15.75V9.456c0-1.081.768-2.015 1.837-2.175a48.041 48.041 0 0 1 1.913-.247"/></svg>
+                Cetak / PDF
+            </button>
+            <button id="btn-salin" onclick="salinLinkPublik()" class="inline-flex items-center gap-1.5 border border-slate-200 bg-white text-slate-600 text-xs font-medium px-3 py-1.5 rounded-lg hover:bg-slate-50">
+                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="1.6" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M13.19 8.688a4.5 4.5 0 0 1 1.242 7.244l-4.5 4.5a4.5 4.5 0 0 1-6.364-6.364l1.757-1.757m13.35-.622 1.757-1.757a4.5 4.5 0 0 0-6.364-6.364l-4.5 4.5a4.5 4.5 0 0 0 1.242 7.244"/></svg>
+                Salin link untuk karyawan
+            </button>
+            <a href="{{ url_for('public.public_detail', device_id=device.id) }}" target="_blank" class="inline-flex items-center gap-1.5 border border-slate-200 bg-white text-slate-600 text-xs font-medium px-3 py-1.5 rounded-lg hover:bg-slate-50">
+                Buka halaman publik ↗
+            </a>
+        </div>
+    </div>
 
-    <div class="mt-3 bg-white rounded-2xl border border-slate-200 p-6 mb-6">
+    <!-- HEADER -->
+    <div class="mt-3 bg-white rounded-2xl border border-slate-200 p-6 mb-4">
         <div class="flex items-start justify-between flex-wrap gap-4">
             <div>
                 <h1 class="text-xl font-bold text-slate-900">{{ device.brand or 'Laptop' }} {{ device.model or '' }}</h1>
-                <p class="text-sm text-slate-500 font-mono">SN: {{ device.serial_number or '—' }} · Asset: {{ device.asset_no or '—' }} · MAC: {{ device.primary_mac or '—' }}</p>
+                <p class="text-sm text-slate-500 font-mono mt-1">
+                    SN: {{ device.serial_number or '—' }} &nbsp;·&nbsp;
+                    Aset: {{ device.asset_no or '—' }} &nbsp;·&nbsp;
+                    MAC: {{ device.primary_mac or '—' }}
+                </p>
+                <p class="text-xs text-slate-400 mt-0.5">
+                    Pertama terlihat: {{ device.first_seen_at or '—' }} &nbsp;·&nbsp;
+                    Terakhir: {{ device.last_seen_at or '—' }}
+                </p>
             </div>
             {% if latest %}
-            <div class="text-right">
+            <div class="text-right shrink-0">
                 <div class="text-3xl font-extrabold text-indigo-600">{{ latest.score_total if latest.score_total is not none else '—' }}</div>
                 {% set st = latest.status %}
-                <span class="px-2 py-0.5 rounded-full text-xs font-semibold
+                <span class="inline-block px-2 py-0.5 rounded-full text-xs font-semibold
                     {% if st=='eligible' %}bg-emerald-50 text-emerald-700{% elif st=='upgrade' %}bg-amber-50 text-amber-700{% elif st=='replace' %}bg-rose-50 text-rose-700{% else %}bg-slate-100 text-slate-500{% endif %}">
                     {{ status_label.get(st, st or '—') }}
                 </span>
+                <div class="text-xs text-slate-400 mt-1">{{ latest.submitted_at or '' }}</div>
             </div>
             {% endif %}
         </div>
     </div>
 
     {% if latest %}
-    <!-- Spek + skor terbaru -->
-    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
-        <div class="bg-white rounded-xl border border-slate-200 p-5">
-            <h2 class="text-xs font-bold uppercase text-slate-400 mb-3">Spesifikasi terbaru</h2>
-            <dl class="text-sm space-y-1.5">
-                <div class="flex justify-between"><dt class="text-slate-500">CPU</dt><dd class="font-medium text-right">{{ latest.cpu_model or '—' }} <span class="text-slate-400">({{ latest.cpu_passmark or '?' }} PM)</span></dd></div>
-                <div class="flex justify-between"><dt class="text-slate-500">RAM</dt><dd class="font-medium">{{ latest.ram_gb or '—' }} GB {{ latest.ram_type or '' }}</dd></div>
-                <div class="flex justify-between"><dt class="text-slate-500">Storage</dt><dd class="font-medium">{{ latest.ssd_gb or 0 }}GB {{ latest.ssd_type or '' }}{% if latest.hdd_gb %} + {{ latest.hdd_gb }}GB HDD{% endif %}</dd></div>
-                <div class="flex justify-between"><dt class="text-slate-500">GPU</dt><dd class="font-medium text-right">{{ latest.gpu or '—' }}</dd></div>
-                <div class="flex justify-between"><dt class="text-slate-500">OS</dt><dd class="font-medium text-right">{{ latest.os_name or '—' }}</dd></div>
-                <div class="flex justify-between"><dt class="text-slate-500">Baterai</dt><dd class="font-medium">{{ latest.battery_health_pct|round(0) if latest.battery_health_pct is not none else '—' }}% sehat</dd></div>
-            </dl>
-        </div>
-        <div class="bg-white rounded-xl border border-slate-200 p-5">
-            <h2 class="text-xs font-bold uppercase text-slate-400 mb-3">Penilaian</h2>
-            <div class="flex gap-4 text-sm mb-3">
-                <div><div class="text-slate-400 text-xs">Spek</div><div class="font-bold text-lg">{{ latest.score_spec if latest.score_spec is not none else '—' }}</div></div>
-                <div><div class="text-slate-400 text-xs">Beban</div><div class="font-bold text-lg">{{ latest.score_load if latest.score_load is not none else '—' }}</div></div>
-                <div><div class="text-slate-400 text-xs">Total</div><div class="font-bold text-lg text-indigo-600">{{ latest.score_total if latest.score_total is not none else '—' }}</div></div>
-                <div><div class="text-slate-400 text-xs">Pensiun</div><div class="font-bold text-lg">{{ latest.eol_year or '—' }}</div></div>
+
+    <!-- INSIGHT / KESIMPULAN -->
+    {% if insights %}
+    {% set tone_dot = {'good':'bg-emerald-500','warn':'bg-amber-500','bad':'bg-rose-500','neutral':'bg-slate-400'} %}
+    {% set tone_txt = {'good':'text-emerald-700','warn':'text-amber-700','bad':'text-rose-700','neutral':'text-slate-600'} %}
+    {% set head_bg = {'good':'bg-emerald-50 border-emerald-200 text-emerald-800','warn':'bg-amber-50 border-amber-200 text-amber-800','bad':'bg-rose-50 border-rose-200 text-rose-800','neutral':'bg-slate-50 border-slate-200 text-slate-700'} %}
+    <div class="bg-white rounded-xl border border-slate-200 p-5 mb-4 print-border">
+        <h2 class="text-xs font-bold uppercase text-slate-400 mb-3">Kesimpulan & Insight</h2>
+        <div class="rounded-xl border {{ head_bg[insights.tone] }} p-3 mb-4 text-sm font-semibold">{{ insights.verdict }}</div>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-4">
+            <div>
+                <div class="text-xs text-slate-400 font-semibold mb-2">Penjelasan</div>
+                <ul class="space-y-1.5">
+                    {% for c in insights.components %}
+                    <li class="flex gap-2 items-start text-xs">
+                        <span class="w-1.5 h-1.5 rounded-full {{ tone_dot[c.tone] }} mt-1.5 shrink-0"></span>
+                        <span><span class="font-semibold {{ tone_txt[c.tone] }}">{{ c.label }}:</span> <span class="text-slate-600">{{ c.text }}</span></span>
+                    </li>
+                    {% endfor %}
+                </ul>
             </div>
-            {% if latest._reasons %}
-            <ul class="text-xs text-slate-600 list-disc list-inside space-y-0.5">{% for r in latest._reasons %}<li>{{ r }}</li>{% endfor %}</ul>
-            {% else %}<p class="text-xs text-slate-400">Tidak ada catatan khusus.</p>{% endif %}
+            <div>
+                <div class="text-xs text-slate-400 font-semibold mb-2">Rekomendasi</div>
+                {% if insights.recommendations %}
+                <ul class="text-xs text-slate-700 space-y-1">
+                    {% for r in insights.recommendations %}
+                    <li class="flex gap-1.5 items-start"><span class="text-indigo-500 mt-0.5 shrink-0">→</span><span>{{ r }}</span></li>
+                    {% endfor %}
+                </ul>
+                {% else %}
+                <p class="text-xs text-slate-400">Tidak ada rekomendasi khusus.</p>
+                {% endif %}
+                {% if insights.eol_text %}
+                <p class="text-xs text-slate-500 mt-2">{{ insights.eol_text }}</p>
+                {% endif %}
+            </div>
         </div>
     </div>
     {% endif %}
 
-    <!-- Riwayat -->
-    <div class="bg-white rounded-xl border border-slate-200 overflow-hidden">
-        <div class="px-5 py-3 border-b border-slate-200 font-semibold text-slate-700 text-sm flex items-center gap-2">
-            <svg class="w-4 h-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke-width="1.6" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z"/></svg>
-            Riwayat pengisian ({{ submissions|length }})
+    <!-- ROW 1: Penilaian + Pemegang -->
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-4">
+
+        <!-- PENILAIAN -->
+        <div class="bg-white rounded-xl border border-slate-200 p-5">
+            <h2 class="text-xs font-bold uppercase text-slate-400 mb-3">Penilaian Kelayakan</h2>
+
+            <!-- Skor breakdown -->
+            <div class="flex gap-5 mb-3">
+                <div>
+                    <div class="text-slate-400 text-xs">Spek</div>
+                    <div class="font-bold text-xl">{{ latest.score_spec if latest.score_spec is not none else '—' }}</div>
+                </div>
+                <div>
+                    <div class="text-slate-400 text-xs">Beban</div>
+                    <div class="font-bold text-xl">{{ latest.score_load if latest.score_load is not none else '—' }}</div>
+                </div>
+                <div>
+                    <div class="text-slate-400 text-xs">Total</div>
+                    <div class="font-bold text-xl text-indigo-600">{{ latest.score_total if latest.score_total is not none else '—' }}</div>
+                </div>
+                <div>
+                    <div class="text-slate-400 text-xs">Est. Pensiun</div>
+                    <div class="font-bold text-xl">{{ latest.eol_year or '—' }}</div>
+                </div>
+            </div>
+
+            <!-- Standar skor -->
+            <div class="flex gap-1.5 flex-wrap mb-3">
+                <span class="px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-100 text-[10px] font-semibold">≥70 Layak</span>
+                <span class="px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-100 text-[10px] font-semibold">45–69 Upgrade</span>
+                <span class="px-2 py-0.5 rounded-full bg-rose-50 text-rose-700 border border-rose-100 text-[10px] font-semibold">≤44 Ganti</span>
+            </div>
+
+            <!-- Profil kelompok kerja -->
+            {% set wg = latest.work_group %}
+            {% set prof = profiles.get(wg) %}
+            {% if prof %}
+            <div class="bg-slate-50 border border-slate-100 rounded-lg p-3 mb-3 text-xs">
+                <div class="text-slate-500 font-semibold mb-1.5">Parameter kelompok: {{ group_label(latest) }}</div>
+                <div class="grid grid-cols-2 gap-x-4 gap-y-1 text-slate-600">
+                    <div>CPU min: <span class="font-semibold">{{ prof.cpu_floor }}</span> PM</div>
+                    <div>CPU ideal: <span class="font-semibold">{{ prof.cpu_ideal }}</span> PM</div>
+                    <div>RAM min: <span class="font-semibold">{{ prof.ram_min }}</span> GB</div>
+                    <div>RAM ideal: <span class="font-semibold">{{ prof.ram_ideal }}</span> GB</div>
+                </div>
+            </div>
+            {% endif %}
+
+            <!-- Pemakaian RAM -->
+            {% if latest.ram_usage_pct is not none %}
+            <div class="text-xs text-slate-500 mb-3">
+                Pemakaian RAM saat cek:
+                <span class="font-semibold {{ 'text-rose-600' if latest.ram_usage_pct > 80 else 'text-amber-600' if latest.ram_usage_pct > 60 else 'text-emerald-600' }}">
+                    {{ latest.ram_usage_pct|round(1) }}%
+                </span>
+                <span class="text-slate-400">
+                    ({{ 'sangat tinggi' if latest.ram_usage_pct > 90 else 'tinggi' if latest.ram_usage_pct > 80 else 'sedang' if latest.ram_usage_pct > 60 else 'minimal / normal' }})
+                </span>
+            </div>
+            {% endif %}
+
+            <!-- Catatan & alasan -->
+            {% if latest._reasons %}
+            <div>
+                <div class="text-xs text-slate-400 font-semibold mb-1.5">Catatan & Alasan</div>
+                <ul class="text-xs text-slate-600 space-y-1">
+                    {% for r in latest._reasons %}
+                    <li class="flex gap-1.5 items-start">
+                        <span class="text-amber-500 mt-0.5 shrink-0">▸</span>
+                        <span>{{ r }}</span>
+                    </li>
+                    {% endfor %}
+                </ul>
+            </div>
+            {% else %}
+            <p class="text-xs text-slate-400">Tidak ada catatan khusus.</p>
+            {% endif %}
         </div>
-        <div class="overflow-x-auto">
-        <table class="w-full text-sm text-left">
-            <thead class="bg-slate-50 text-slate-500 text-xs uppercase border-b border-slate-200">
-                <tr><th class="px-4 py-2">Waktu</th><th class="px-4 py-2">Pemegang</th><th class="px-4 py-2">Kelompok</th><th class="px-4 py-2">RAM</th><th class="px-4 py-2 text-center">Skor</th><th class="px-4 py-2 text-center">Status</th></tr>
-            </thead>
-            <tbody class="divide-y divide-slate-100">
-                {% for s in submissions %}
-                <tr class="hover:bg-slate-50/60">
-                    <td class="px-4 py-2 text-xs text-slate-500">{{ s.submitted_at }}</td>
-                    <td class="px-4 py-2 font-medium">{{ s.holder_name or '-' }}</td>
-                    <td class="px-4 py-2"><span class="text-xs">{{ group_label(s) }}</span></td>
-                    <td class="px-4 py-2">{{ s.ram_gb or '—' }} GB</td>
-                    <td class="px-4 py-2 text-center font-bold text-indigo-600">{{ s.score_total if s.score_total is not none else '—' }}</td>
-                    <td class="px-4 py-2 text-center">
-                        {% set st = s.status %}
-                        <span class="px-2 py-0.5 rounded-full text-xs font-semibold
-                            {% if st=='eligible' %}bg-emerald-50 text-emerald-700{% elif st=='upgrade' %}bg-amber-50 text-amber-700{% elif st=='replace' %}bg-rose-50 text-rose-700{% else %}bg-slate-100 text-slate-500{% endif %}">{{ status_label.get(st, st or '—') }}</span>
-                    </td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
+
+        <!-- PEMEGANG & KONDISI -->
+        <div class="bg-white rounded-xl border border-slate-200 p-5">
+            <h2 class="text-xs font-bold uppercase text-slate-400 mb-3">Data Pemegang & Kondisi</h2>
+            <dl class="text-sm space-y-2">
+                <div class="flex justify-between gap-2">
+                    <dt class="text-slate-500 shrink-0">Nama Karyawan</dt>
+                    <dd class="font-medium text-right">{{ latest.holder_name or '—' }}</dd>
+                </div>
+                <div class="flex justify-between gap-2">
+                    <dt class="text-slate-500 shrink-0">Jabatan</dt>
+                    <dd class="font-medium text-right">{{ latest.holder_position or '—' }}</dd>
+                </div>
+                <div class="flex justify-between gap-2">
+                    <dt class="text-slate-500 shrink-0">Perusahaan</dt>
+                    <dd class="font-medium text-right">{{ latest.holder_company or '—' }}</dd>
+                </div>
+                <div class="flex justify-between gap-2">
+                    <dt class="text-slate-500 shrink-0">Lokasi Penempatan</dt>
+                    <dd class="font-medium text-right">{{ latest.holder_location or '—' }}</dd>
+                </div>
+                <div class="flex justify-between gap-2">
+                    <dt class="text-slate-500 shrink-0">Kelompok Kerja</dt>
+                    <dd class="font-medium text-right">{{ group_label(latest) }}</dd>
+                </div>
+                <div class="flex justify-between gap-2">
+                    <dt class="text-slate-500 shrink-0">Status Kepemilikan</dt>
+                    <dd class="font-medium text-right">
+                        {% if latest.laptop_status == 'office_inventory' %}Inventaris Kantor
+                        {% elif latest.laptop_status == 'personal' %}Milik Pribadi
+                        {% else %}—{% endif %}
+                    </dd>
+                </div>
+                <div class="flex justify-between gap-2">
+                    <dt class="text-slate-500 shrink-0">Kondisi Fisik</dt>
+                    <dd class="font-medium">
+                        {% if latest.physical_condition == 'good' %}<span class="text-emerald-600">Baik</span>
+                        {% elif latest.physical_condition == 'fair' %}<span class="text-amber-600">Cukup</span>
+                        {% elif latest.physical_condition == 'poor' %}<span class="text-rose-600">Kurang</span>
+                        {% else %}—{% endif %}
+                    </dd>
+                </div>
+                <div class="flex justify-between gap-2">
+                    <dt class="text-slate-500 shrink-0">Kelengkapan</dt>
+                    <dd class="text-xs font-medium text-right">{{ latest.accessories or '—' }}</dd>
+                </div>
+                <div class="flex justify-between gap-2">
+                    <dt class="text-slate-500 shrink-0">Tahun Pembelian</dt>
+                    <dd class="font-medium">{{ latest.purchase_year or '—' }}</dd>
+                </div>
+                {% if latest.issues and latest.issues != 'Tidak ada' %}
+                <div class="pt-2 border-t border-slate-100">
+                    <dt class="text-xs text-slate-500 mb-1">Kerusakan / Keluhan</dt>
+                    <dd class="text-xs bg-rose-50 text-rose-700 rounded-lg p-2">{{ latest.issues }}</dd>
+                </div>
+                {% endif %}
+                <div class="flex justify-between gap-2 pt-2 border-t border-slate-100">
+                    <dt class="text-xs text-slate-400 shrink-0">Sumber Data</dt>
+                    <dd class="text-xs font-medium">
+                        {% if latest.source == 'windows_script' %}Script Windows
+                        {% elif latest.source == 'mac_script' %}Script Mac
+                        {% elif latest.source == 'linux_script' %}Script Linux
+                        {% else %}Manual{% endif %}
+                    </dd>
+                </div>
+            </dl>
         </div>
     </div>
+
+    <!-- SPESIFIKASI LENGKAP -->
+    <div class="bg-white rounded-xl border border-slate-200 p-5 mb-4">
+        <h2 class="text-xs font-bold uppercase text-slate-400 mb-4">Spesifikasi Lengkap</h2>
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+
+            <!-- CPU -->
+            <div>
+                <h3 class="text-[11px] font-bold uppercase text-slate-400 mb-2 pb-1 border-b border-slate-100">CPU / Prosesor</h3>
+                <dl class="space-y-1.5">
+                    <div class="flex justify-between gap-2">
+                        <dt class="text-xs text-slate-400 shrink-0">Model</dt>
+                        <dd class="text-xs font-medium text-right">{{ latest.cpu_model or '—' }}</dd>
+                    </div>
+                    <div class="flex justify-between gap-2">
+                        <dt class="text-xs text-slate-400 shrink-0">Skor PassMark</dt>
+                        <dd class="text-xs font-semibold">{{ latest.cpu_passmark or '—' }}</dd>
+                    </div>
+                    <div class="flex justify-between gap-2">
+                        <dt class="text-xs text-slate-400 shrink-0">Core / Thread</dt>
+                        <dd class="text-xs font-medium">{{ latest.cpu_cores or '—' }} / {{ latest.cpu_threads or '—' }}</dd>
+                    </div>
+                    <div class="flex justify-between gap-2">
+                        <dt class="text-xs text-slate-400 shrink-0">Arsitektur</dt>
+                        <dd class="text-xs font-medium">{{ latest.cpu_arch or '—' }}</dd>
+                    </div>
+                    <div class="flex justify-between gap-2">
+                        <dt class="text-xs text-slate-400 shrink-0">Kecepatan</dt>
+                        <dd class="text-xs font-medium">{% if latest.cpu_speed_mhz %}{{ latest.cpu_speed_mhz }} MHz{% else %}—{% endif %}</dd>
+                    </div>
+                </dl>
+            </div>
+
+            <!-- RAM -->
+            <div>
+                <h3 class="text-[11px] font-bold uppercase text-slate-400 mb-2 pb-1 border-b border-slate-100">RAM</h3>
+                <dl class="space-y-1.5">
+                    <div class="flex justify-between gap-2">
+                        <dt class="text-xs text-slate-400 shrink-0">Kapasitas</dt>
+                        <dd class="text-xs font-semibold">{{ latest.ram_gb or '—' }} GB</dd>
+                    </div>
+                    <div class="flex justify-between gap-2">
+                        <dt class="text-xs text-slate-400 shrink-0">Tipe</dt>
+                        <dd class="text-xs font-medium">{{ latest.ram_type or '—' }}</dd>
+                    </div>
+                    <div class="flex justify-between gap-2">
+                        <dt class="text-xs text-slate-400 shrink-0">Kecepatan</dt>
+                        <dd class="text-xs font-medium">{% if latest.ram_speed_mhz %}{{ latest.ram_speed_mhz }} MHz{% else %}—{% endif %}</dd>
+                    </div>
+                    <div class="flex justify-between gap-2">
+                        <dt class="text-xs text-slate-400 shrink-0">Pemakaian saat cek</dt>
+                        <dd class="text-xs font-medium {{ 'text-rose-600' if latest.ram_usage_pct is not none and latest.ram_usage_pct > 80 else 'text-amber-600' if latest.ram_usage_pct is not none and latest.ram_usage_pct > 60 else '' }}">
+                            {% if latest.ram_usage_pct is not none %}
+                                {{ latest.ram_usage_pct|round(1) }}%
+                                {% if latest.ram_usage_gb is not none %} ({{ latest.ram_usage_gb|round(1) }} GB){% endif %}
+                            {% else %}—{% endif %}
+                        </dd>
+                    </div>
+                </dl>
+            </div>
+
+            <!-- Storage -->
+            <div>
+                <h3 class="text-[11px] font-bold uppercase text-slate-400 mb-2 pb-1 border-b border-slate-100">Penyimpanan</h3>
+                <dl class="space-y-1.5">
+                    <div class="flex justify-between gap-2">
+                        <dt class="text-xs text-slate-400 shrink-0">SSD</dt>
+                        <dd class="text-xs font-medium">
+                            {% if latest.ssd_gb %}{{ latest.ssd_gb }} GB{% if latest.ssd_type %} ({{ latest.ssd_type }}){% endif %}{% else %}—{% endif %}
+                        </dd>
+                    </div>
+                    <div class="flex justify-between gap-2">
+                        <dt class="text-xs text-slate-400 shrink-0">HDD</dt>
+                        <dd class="text-xs font-medium">{% if latest.hdd_gb %}{{ latest.hdd_gb }} GB{% else %}—{% endif %}</dd>
+                    </div>
+                    <div class="flex justify-between gap-2">
+                        <dt class="text-xs text-slate-400 shrink-0">Kapasitas Disk OS</dt>
+                        <dd class="text-xs font-medium">{% if latest.os_total_gb %}{{ latest.os_total_gb|round(0)|int }} GB{% else %}—{% endif %}</dd>
+                    </div>
+                    <div class="flex justify-between gap-2">
+                        <dt class="text-xs text-slate-400 shrink-0">Sisa Disk OS</dt>
+                        <dd class="text-xs font-medium {{ 'text-rose-600 font-semibold' if latest.os_free_gb is not none and latest.os_free_gb < 20 else '' }}">
+                            {% if latest.os_free_gb is not none %}{{ latest.os_free_gb|round(0)|int }} GB{% else %}—{% endif %}
+                        </dd>
+                    </div>
+                </dl>
+            </div>
+
+            <!-- GPU & Sistem -->
+            <div>
+                <h3 class="text-[11px] font-bold uppercase text-slate-400 mb-2 pb-1 border-b border-slate-100">GPU & Sistem</h3>
+                <dl class="space-y-1.5">
+                    <div class="flex justify-between gap-2">
+                        <dt class="text-xs text-slate-400 shrink-0">GPU</dt>
+                        <dd class="text-xs font-medium text-right">{{ latest.gpu or '—' }}</dd>
+                    </div>
+                    <div class="flex justify-between gap-2">
+                        <dt class="text-xs text-slate-400 shrink-0">Sistem Operasi</dt>
+                        <dd class="text-xs font-medium text-right">{{ latest.os_name or '—' }}</dd>
+                    </div>
+                    <div class="flex justify-between gap-2">
+                        <dt class="text-xs text-slate-400 shrink-0">Hostname</dt>
+                        <dd class="text-xs font-medium font-mono text-right">{{ latest.hostname or '—' }}</dd>
+                    </div>
+                    <div class="flex justify-between gap-2">
+                        <dt class="text-xs text-slate-400 shrink-0">MAC Address</dt>
+                        <dd class="text-xs font-medium font-mono text-right">{{ latest.mac_address or '—' }}</dd>
+                    </div>
+                </dl>
+            </div>
+
+            <!-- Baterai -->
+            <div>
+                <h3 class="text-[11px] font-bold uppercase text-slate-400 mb-2 pb-1 border-b border-slate-100">Baterai</h3>
+                <dl class="space-y-1.5">
+                    <div class="flex justify-between gap-2">
+                        <dt class="text-xs text-slate-400 shrink-0">Daya saat cek</dt>
+                        <dd class="text-xs font-medium">
+                            {% if latest.battery_pct is not none %}{{ latest.battery_pct|round(0)|int }}%{% else %}—{% endif %}
+                        </dd>
+                    </div>
+                    <div class="flex justify-between gap-2">
+                        <dt class="text-xs text-slate-400 shrink-0">Kesehatan baterai</dt>
+                        <dd class="text-xs font-medium
+                            {% if latest.battery_health_pct is not none and latest.battery_health_pct < 60 %}text-rose-600{% elif latest.battery_wh_full and latest.battery_wh_design and latest.battery_wh_design > 0 and (latest.battery_wh_full / latest.battery_wh_design * 100) < 60 %}text-rose-600{% endif %}">
+                            {% if latest.battery_health_pct is not none %}{{ latest.battery_health_pct|round(0)|int }}%
+                            {% elif latest.battery_wh_full and latest.battery_wh_design and latest.battery_wh_design > 0 %}{{ (latest.battery_wh_full / latest.battery_wh_design * 100)|round(0)|int }}%
+                            {% else %}—{% endif %}
+                        </dd>
+                    </div>
+                    <div class="flex justify-between gap-2">
+                        <dt class="text-xs text-slate-400 shrink-0">Kapasitas penuh (Wh)</dt>
+                        <dd class="text-xs font-medium">{{ latest.battery_wh_full or '—' }}</dd>
+                    </div>
+                    <div class="flex justify-between gap-2">
+                        <dt class="text-xs text-slate-400 shrink-0">Kapasitas desain (Wh)</dt>
+                        <dd class="text-xs font-medium">{{ latest.battery_wh_design or '—' }}</dd>
+                    </div>
+                </dl>
+            </div>
+
+            <!-- Info Pengisian -->
+            <div>
+                <h3 class="text-[11px] font-bold uppercase text-slate-400 mb-2 pb-1 border-b border-slate-100">Info Pengisian</h3>
+                <dl class="space-y-1.5">
+                    <div class="flex justify-between gap-2">
+                        <dt class="text-xs text-slate-400 shrink-0">Waktu Submit</dt>
+                        <dd class="text-xs font-medium text-right">{{ latest.submitted_at or '—' }}</dd>
+                    </div>
+                    <div class="flex justify-between gap-2">
+                        <dt class="text-xs text-slate-400 shrink-0">Sumber Data</dt>
+                        <dd class="text-xs font-medium">
+                            {% if latest.source == 'windows_script' %}Script Windows
+                            {% elif latest.source == 'mac_script' %}Script Mac
+                            {% elif latest.source == 'linux_script' %}Script Linux
+                            {% else %}Manual{% endif %}
+                        </dd>
+                    </div>
+                    <div class="flex justify-between gap-2">
+                        <dt class="text-xs text-slate-400 shrink-0">No. Aset</dt>
+                        <dd class="text-xs font-medium font-mono">{{ latest.asset_no or '—' }}</dd>
+                    </div>
+                    <div class="flex justify-between gap-2">
+                        <dt class="text-xs text-slate-400 shrink-0">Nomor Seri</dt>
+                        <dd class="text-xs font-medium font-mono">{{ latest.serial_number or '—' }}</dd>
+                    </div>
+                </dl>
+            </div>
+
+        </div>
+    </div>
+
+    {% endif %}
+
+    <!-- RIWAYAT -->
+    <div class="bg-white rounded-xl border border-slate-200 overflow-hidden">
+        <div class="px-5 py-3 border-b border-slate-200 font-semibold text-slate-700 text-sm flex items-center gap-2">
+            <svg class="w-4 h-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke-width="1.6" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z"/>
+            </svg>
+            Riwayat Pengisian ({{ submissions|length }})
+        </div>
+        <div class="overflow-x-auto">
+            <table class="w-full text-sm text-left">
+                <thead class="bg-slate-50 text-slate-500 text-xs uppercase border-b border-slate-200">
+                    <tr>
+                        <th class="px-4 py-2 whitespace-nowrap">Waktu</th>
+                        <th class="px-4 py-2">Nama</th>
+                        <th class="px-4 py-2">Jabatan / Perusahaan</th>
+                        <th class="px-4 py-2">Kelompok</th>
+                        <th class="px-4 py-2">RAM</th>
+                        <th class="px-4 py-2">Pakai RAM</th>
+                        <th class="px-4 py-2 text-center">Spek</th>
+                        <th class="px-4 py-2 text-center">Beban</th>
+                        <th class="px-4 py-2 text-center">Total</th>
+                        <th class="px-4 py-2 text-center">Status</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-100">
+                    {% for s in submissions %}
+                    <tr class="hover:bg-slate-50/60 {{ 'bg-indigo-50/20' if loop.first else '' }}">
+                        <td class="px-4 py-2 text-xs text-slate-500 whitespace-nowrap">{{ s.submitted_at }}</td>
+                        <td class="px-4 py-2 font-medium text-sm">{{ s.holder_name or '-' }}</td>
+                        <td class="px-4 py-2 text-xs text-slate-500">
+                            {{ s.holder_position or '—' }}
+                            {% if s.holder_company %}<br><span class="text-slate-400">{{ s.holder_company }}</span>{% endif %}
+                        </td>
+                        <td class="px-4 py-2 text-xs">{{ group_label(s) }}</td>
+                        <td class="px-4 py-2 text-xs">{{ s.ram_gb or '—' }} GB</td>
+                        <td class="px-4 py-2 text-xs {{ 'text-rose-600 font-semibold' if s.ram_usage_pct is not none and s.ram_usage_pct > 80 else 'text-amber-600' if s.ram_usage_pct is not none and s.ram_usage_pct > 60 else '' }}">
+                            {% if s.ram_usage_pct is not none %}{{ s.ram_usage_pct|round(0)|int }}%{% else %}—{% endif %}
+                        </td>
+                        <td class="px-4 py-2 text-center text-xs">{{ s.score_spec if s.score_spec is not none else '—' }}</td>
+                        <td class="px-4 py-2 text-center text-xs">{{ s.score_load if s.score_load is not none else '—' }}</td>
+                        <td class="px-4 py-2 text-center font-bold text-indigo-600">{{ s.score_total if s.score_total is not none else '—' }}</td>
+                        <td class="px-4 py-2 text-center">
+                            {% set st = s.status %}
+                            <span class="px-2 py-0.5 rounded-full text-xs font-semibold
+                                {% if st=='eligible' %}bg-emerald-50 text-emerald-700{% elif st=='upgrade' %}bg-amber-50 text-amber-700{% elif st=='replace' %}bg-rose-50 text-rose-700{% else %}bg-slate-100 text-slate-500{% endif %}">
+                                {{ status_label.get(st, st or '—') }}
+                            </span>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
 </div>
+
+<script>
+    function salinLinkPublik() {
+        const url = "{{ url_for('public.public_detail', device_id=device.id, _external=True) }}";
+        const btn = document.getElementById("btn-salin");
+        const original = btn.innerHTML;
+        const done = () => {
+            btn.innerHTML = '<span class="text-emerald-600">✓ Link tersalin</span>';
+            setTimeout(() => { btn.innerHTML = original; }, 2000);
+        };
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(url).then(done).catch(() => prompt("Salin link ini:", url));
+        } else {
+            prompt("Salin link ini:", url);
+        }
+    }
+</script>
 </body>
 </html>

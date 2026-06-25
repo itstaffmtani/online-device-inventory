@@ -17,6 +17,8 @@ from flask import (Blueprint, Response, current_app, redirect, render_template,
                    request, session, url_for)
 
 import db
+from scoring import PROFILES as SCORING_PROFILES
+from scoring import build_insights
 
 admin_bp = Blueprint("admin", __name__, url_prefix="/admin")
 
@@ -34,6 +36,12 @@ def group_label(row):
         return row["work_group_other"].strip()
     return WORK_GROUP_LABEL.get(wg, wg or "-")
 STATUS_LABEL = {"eligible": "Layak", "upgrade": "Upgrade", "replace": "Ganti"}
+LAPTOP_STATUS_LABEL = {"office_inventory": "Inventaris Kantor", "personal": "Milik Pribadi"}
+PHYSICAL_CONDITION_LABEL = {"good": "Baik", "fair": "Cukup", "poor": "Kurang"}
+SOURCE_LABEL = {
+    "windows_script": "Script Windows", "mac_script": "Script Mac",
+    "linux_script": "Script Linux", "manual": "Manual",
+}
 _STATUS_RANK = {"replace": 0, "upgrade": 1, "eligible": 2}
 
 
@@ -88,8 +96,10 @@ def logout():
 @login_required
 def dashboard():
     rows = db.latest_per_device()
+    current_year = datetime.now().year
     for r in rows:
         r["_reasons"] = _parse_reasons(r.get("status_reasons"))
+        r["_insight"] = build_insights(r, current_year=current_year)
 
     # Ringkasan.
     summary = {
@@ -98,6 +108,8 @@ def dashboard():
         "per_group": {},
         "per_company": {},
     }
+    # Agregat insight: masalah paling umum di seluruh armada laptop.
+    attention = {"need_action": 0, "ram_kurang": 0, "belum_ssd": 0, "baterai_lemah": 0}
     for r in rows:
         st = r.get("status")
         if st in summary["per_status"]:
@@ -106,6 +118,18 @@ def dashboard():
         summary["per_group"][grp] = summary["per_group"].get(grp, 0) + 1
         comp = r.get("holder_company") or "-"
         summary["per_company"][comp] = summary["per_company"].get(comp, 0) + 1
+        # Hitung masalah umum dari komponen insight.
+        if st in ("upgrade", "replace"):
+            attention["need_action"] += 1
+        for c in r["_insight"]["components"]:
+            if c["tone"] != "bad":
+                continue
+            if c["label"] == "RAM":
+                attention["ram_kurang"] += 1
+            elif c["label"] == "Penyimpanan":
+                attention["belum_ssd"] += 1
+            elif c["label"] == "Baterai":
+                attention["baterai_lemah"] += 1
 
     # Cari.
     q = (request.args.get("q") or "").strip().lower()
@@ -133,6 +157,7 @@ def dashboard():
     rows.sort(key=keyf, reverse=(direction == "desc"))
 
     return render_template("admin/dashboard.html", rows=rows, summary=summary,
+                           attention=attention,
                            q=request.args.get("q", ""), sort=sort, dir=direction,
                            wg_label=WORK_GROUP_LABEL, group_label=group_label,
                            status_label=STATUS_LABEL)
@@ -146,46 +171,89 @@ def device_detail(device_id):
         return Response("Device tidak ditemukan.", status=404)
     for s in data["submissions"]:
         s["_reasons"] = _parse_reasons(s.get("status_reasons"))
+    latest = data["submissions"][0] if data["submissions"] else None
+    insights = build_insights(latest, current_year=datetime.now().year) if latest else None
     return render_template("admin/detail.html", device=data["device"],
-                           submissions=data["submissions"], latest=data["submissions"][0] if data["submissions"] else None,
+                           submissions=data["submissions"], latest=latest,
                            wg_label=WORK_GROUP_LABEL, group_label=group_label,
-                           status_label=STATUS_LABEL)
+                           status_label=STATUS_LABEL, profiles=SCORING_PROFILES,
+                           insights=insights)
 
 
 # ---------------------------------------------------------------------------
 # Export XLSX (data terbaru per laptop) — anti formula injection.
 # ---------------------------------------------------------------------------
 _EXPORT_COLUMNS = [
-    ("submitted_at", "Waktu"),
-    ("holder_name", "Nama"),
-    ("work_group", "Kelompok"),
-    ("holder_position", "Jabatan"),
-    ("holder_company", "Perusahaan"),
-    ("holder_location", "Penempatan"),
-    ("laptop_status", "Status Laptop"),
-    ("serial_number", "Serial"),
-    ("asset_no", "No Asset"),
-    ("device_brand", "Merk"),
-    ("device_model", "Model"),
-    ("cpu_model", "CPU"),
-    ("cpu_passmark", "PassMark"),
-    ("ram_gb", "RAM (GB)"),
-    ("ssd_gb", "SSD (GB)"),
-    ("ssd_type", "Tipe SSD"),
-    ("hdd_gb", "HDD (GB)"),
-    ("os_name", "OS"),
-    ("battery_health_pct", "Baterai Sehat (%)"),
-    ("physical_condition", "Kondisi Fisik"),
-    ("accessories", "Kelengkapan"),
-    ("purchase_year", "Tahun Beli"),
-    ("issues", "Kerusakan"),
-    ("score_spec", "Skor Spek"),
-    ("score_load", "Skor Beban"),
-    ("score_total", "Skor Total"),
-    ("status", "Status"),
-    ("eol_year", "Estimasi Pensiun"),
-    ("status_reasons", "Alasan"),
+    # — Identitas pengisian & pemegang —
+    ("submitted_at",        "Waktu Submit"),
+    ("source",              "Sumber Data"),
+    ("holder_name",         "Nama Karyawan"),
+    ("holder_position",     "Jabatan"),
+    ("holder_company",      "Perusahaan"),
+    ("holder_location",     "Lokasi Penempatan"),
+    ("work_group",          "Kelompok Kerja"),
+    ("laptop_status",       "Status Kepemilikan"),
+    # — Identitas aset —
+    ("serial_number",       "Nomor Seri"),
+    ("asset_no",            "No. Aset"),
+    ("hostname",            "Hostname"),
+    ("mac_address",         "MAC Address"),
+    ("device_brand",        "Merek"),
+    ("device_model",        "Model Laptop"),
+    # — CPU —
+    ("cpu_model",           "CPU / Prosesor"),
+    ("cpu_passmark",        "Skor CPU (PassMark)"),
+    ("cpu_cores",           "Core CPU"),
+    ("cpu_threads",         "Thread CPU"),
+    ("cpu_arch",            "Arsitektur CPU"),
+    ("cpu_speed_mhz",       "Kecepatan CPU (MHz)"),
+    # — GPU —
+    ("gpu",                 "GPU / Kartu Grafis"),
+    # — RAM —
+    ("ram_gb",              "RAM (GB)"),
+    ("ram_type",            "Tipe RAM"),
+    ("ram_speed_mhz",       "Kecepatan RAM (MHz)"),
+    ("ram_usage_pct",       "Pemakaian RAM (%)"),
+    ("ram_usage_gb",        "RAM Terpakai (GB)"),
+    # — Penyimpanan & OS —
+    ("ssd_gb",              "SSD (GB)"),
+    ("ssd_type",            "Tipe SSD"),
+    ("hdd_gb",              "HDD (GB)"),
+    ("os_total_gb",         "Kapasitas Disk OS (GB)"),
+    ("os_free_gb",          "Sisa Disk OS (GB)"),
+    ("os_name",             "Sistem Operasi"),
+    # — Baterai —
+    ("battery_pct",         "Daya Baterai saat Cek (%)"),
+    ("battery_health_pct",  "Kesehatan Baterai (%)"),
+    ("battery_wh_full",     "Kapasitas Penuh Baterai (Wh)"),
+    ("battery_wh_design",   "Kapasitas Desain Baterai (Wh)"),
+    # — Kondisi & kelengkapan —
+    ("physical_condition",  "Kondisi Fisik"),
+    ("accessories",         "Kelengkapan"),
+    ("purchase_year",       "Tahun Pembelian"),
+    ("issues",              "Kerusakan / Keluhan"),
+    # — Hasil penilaian —
+    ("score_spec",          "Skor Spek"),
+    ("score_load",          "Skor Beban"),
+    ("score_total",         "Skor Total"),
+    ("status",              "Status Kelayakan"),
+    ("eol_year",            "Estimasi Pensiun"),
+    ("status_reasons",      "Alasan Status"),
+    # — Insight (turunan) —
+    ("_verdict",            "Kesimpulan"),
+    ("_recommendations",    "Rekomendasi"),
 ]
+
+
+def _battery_health_value(r):
+    """Kesehatan baterai (%): pakai kolom tersimpan, else hitung dari Wh."""
+    h = r.get("battery_health_pct")
+    if h is not None:
+        return round(h)
+    full, design = r.get("battery_wh_full"), r.get("battery_wh_design")
+    if full and design and design > 0:
+        return round(full / design * 100)
+    return None
 
 
 def _sanitize(val):
@@ -217,6 +285,7 @@ def export_xlsx():
         c.fill = header_fill
 
     for ri, r in enumerate(rows, 2):
+        insight = build_insights(r)
         for ci, (key, _label) in enumerate(_EXPORT_COLUMNS, 1):
             if key == "status_reasons":
                 value = "; ".join(_parse_reasons(r.get("status_reasons")))
@@ -224,6 +293,18 @@ def export_xlsx():
                 value = group_label(r)
             elif key == "status":
                 value = STATUS_LABEL.get(r.get("status"), r.get("status"))
+            elif key == "laptop_status":
+                value = LAPTOP_STATUS_LABEL.get(r.get("laptop_status"), r.get("laptop_status"))
+            elif key == "physical_condition":
+                value = PHYSICAL_CONDITION_LABEL.get(r.get("physical_condition"), r.get("physical_condition"))
+            elif key == "source":
+                value = SOURCE_LABEL.get(r.get("source"), r.get("source"))
+            elif key == "battery_health_pct":
+                value = _battery_health_value(r)
+            elif key == "_verdict":
+                value = insight["verdict"]
+            elif key == "_recommendations":
+                value = " | ".join(insight["recommendations"])
             else:
                 value = r.get(key)
             ws.cell(row=ri, column=ci, value=_sanitize(value))
