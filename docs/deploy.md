@@ -70,11 +70,25 @@ sudo nginx -t && sudo systemctl reload nginx
 
 ---
 
-## Update versi berikutnya
+## Adopsi migrasi yoyo (SEKALI saja, saat update ke versi ini)
+DB produksi sudah punya skema (dibuat `init_db()` lama). Cukup **baseline**-kan
+sekali agar yoyo tahu skema sudah ada, tanpa menjalankan ulang apa-apa:
+```bash
+cd /var/www/laptop-inventory
+git pull
+./venv/bin/pip install -r requirements.txt          # ada yoyo-migrations baru
+sudo cp data/inventory.db data/inventory.db.pre-yoyo.bak   # backup dulu
+sudo -u www-data ./venv/bin/python migrate.py mark  # tandai 0001 "applied" (tanpa run)
+sudo systemctl restart laptop-inventory
+```
+
+## Update versi berikutnya (rutin)
 ```bash
 cd /var/www/laptop-inventory
 git pull
 ./venv/bin/pip install -r requirements.txt
+sudo cp data/inventory.db data/inventory.db.bak           # backup sebelum migrasi
+sudo -u www-data ./venv/bin/python migrate.py apply       # terapkan migrasi baru (bila ada)
 sudo systemctl restart laptop-inventory
 ```
 
