@@ -1,10 +1,6 @@
-<!DOCTYPE html>
-<html lang="id">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Laporan Laptop — {{ latest.holder_name or device.serial_number or 'MTani' }}</title>
-    <script src="https://cdn.tailwindcss.com"></script>
+{% extends "base.html" %}
+{% block title %}Laporan Laptop — {{ latest.holder_name or device.serial_number or 'MTani' }}{% endblock %}
+{% block head %}
     <style>
       body { font-family: system-ui, sans-serif; }
       @media print {
@@ -14,8 +10,8 @@
         @page { margin: 1.2cm; }
       }
     </style>
-</head>
-<body class="bg-slate-50 min-h-screen text-slate-800">
+{% endblock %}
+{% block content %}
 <div class="container mx-auto px-4 py-8 max-w-3xl">
 
     {% if not latest %}
@@ -258,5 +254,4 @@
 
     {% endif %}
 </div>
-</body>
-</html>
+{% endblock %}

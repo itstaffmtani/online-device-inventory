@@ -1,0 +1,31 @@
+{#
+  base.html — kerangka HTML bersama untuk SEMUA halaman.
+
+  Tujuan: hapus duplikasi <head> + Tailwind CDN yang dulu disalin di 10 file.
+  Halaman turunan cukup: {% extends "base.html" %} lalu isi block.
+
+  Block yang tersedia:
+    title       -> isi <title>
+    head        -> tag <head> ekstra (font, meta). Default: font system-ui.
+    body_class  -> class pada <body>. Default: latar slate + teks slate.
+    content     -> isi halaman (wajib).
+    scripts     -> <script> ekstra sebelum </body>.
+
+  Alpine.js (CDN, tanpa build) tersedia di semua halaman untuk interaktivitas
+  ringan (x-data, x-show, @click) tanpa perlu SPA. Lihat templates/components/.
+#}
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Inventaris Laptop — MTani{% endblock %}</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.1/dist/cdn.min.js"></script>
+    {% block head %}<style>body { font-family: system-ui, sans-serif; }</style>{% endblock %}
+</head>
+<body class="{% block body_class %}bg-slate-50 min-h-screen text-slate-800{% endblock %}">
+    {% block content %}{% endblock %}
+    {% block scripts %}{% endblock %}
+</body>
+</html>

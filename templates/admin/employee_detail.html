@@ -1,10 +1,6 @@
-<!DOCTYPE html>
-<html lang="id">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Detail Karyawan — Inventaris MTani</title>
-    <script src="https://cdn.tailwindcss.com"></script>
+{% extends "base.html" %}
+{% block title %}Detail Karyawan — Inventaris MTani{% endblock %}
+{% block head %}
     <style>
       body { font-family: system-ui, sans-serif; }
       @media print {
@@ -13,8 +9,8 @@
         .print-border { border-color: #e2e8f0 !important; box-shadow: none !important; }
       }
     </style>
-</head>
-<body class="bg-slate-50 min-h-screen text-slate-800">
+{% endblock %}
+{% block content %}
 <div class="container mx-auto px-4 py-8 max-w-5xl">
 
     <div class="flex items-center justify-between gap-3 flex-wrap no-print">
@@ -207,5 +203,4 @@
     </div>
 
 </div>
-</body>
-</html>
+{% endblock %}

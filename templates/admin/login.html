@@ -1,13 +1,7 @@
-<!DOCTYPE html>
-<html lang="id">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Login Admin — Inventaris Laptop MTani</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <style>body { font-family: system-ui, sans-serif; }</style>
-</head>
-<body class="bg-slate-100 min-h-screen flex items-center justify-center px-4">
+{% extends "base.html" %}
+{% block title %}Login Admin — Inventaris Laptop MTani{% endblock %}
+{% block body_class %}bg-slate-100 min-h-screen flex items-center justify-center px-4{% endblock %}
+{% block content %}
     <form method="POST" class="bg-white rounded-2xl shadow-sm border border-slate-200 p-8 w-full max-w-sm space-y-5">
         <div class="text-center">
             <span class="inline-flex items-center justify-center w-12 h-12 rounded-xl bg-indigo-50 text-indigo-600 mb-2">
@@ -23,5 +17,4 @@
         </div>
         <button type="submit" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-3 rounded-xl">Masuk</button>
     </form>
-</body>
-</html>
+{% endblock %}

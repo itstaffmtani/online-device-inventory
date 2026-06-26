@@ -1,0 +1,25 @@
+{#
+  components/ui.html — macro UI bersama (komponen Jinja).
+
+  Cara pakai di template lain:
+    {% from "components/ui.html" import status_badge, pill %}
+    {{ status_badge('eligible', 'Layak') }}
+
+  Tambahkan macro baru di sini agar tidak menyalin markup di banyak file.
+  Catatan altitude: warna/ambang status mengikuti konvensi UI yang ada
+  (eligible=emerald, upgrade=amber, replace=rose).
+#}
+
+{# Pill warna-status kelayakan (Layak / Upgrade / Ganti / lainnya). #}
+{% macro status_badge(status, label) %}
+<span class="px-2 py-0.5 rounded-full text-xs font-semibold
+    {%- if status == 'eligible' %} bg-emerald-50 text-emerald-700
+    {%- elif status == 'upgrade' %} bg-amber-50 text-amber-700
+    {%- elif status == 'replace' %} bg-rose-50 text-rose-700
+    {%- else %} bg-slate-100 text-slate-500{% endif %}">{{ label }}</span>
+{% endmacro %}
+
+{# Pill generik: pill('Aktif', 'emerald'); warna = nama Tailwind (emerald/slate/...). #}
+{% macro pill(text, color='slate') %}
+<span class="px-2 py-0.5 rounded-full text-xs font-semibold bg-{{ color }}-50 text-{{ color }}-700">{{ text }}</span>
+{% endmacro %}
