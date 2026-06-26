@@ -1,10 +1,6 @@
-<!DOCTYPE html>
-<html lang="id">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Detail Laptop — Inventaris MTani</title>
-    <script src="https://cdn.tailwindcss.com"></script>
+{% extends "base.html" %}
+{% block title %}Detail Laptop — Inventaris MTani{% endblock %}
+{% block head %}
     <style>
       body { font-family: system-ui, sans-serif; }
       @media print {
@@ -13,23 +9,23 @@
         .print-border { border-color: #e2e8f0 !important; box-shadow: none !important; }
       }
     </style>
-</head>
-<body class="bg-slate-50 min-h-screen text-slate-800">
+{% endblock %}
+{% block content %}
 <div class="container mx-auto px-4 py-8 max-w-5xl">
 
     <div class="flex items-center justify-between gap-3 flex-wrap no-print">
         <a href="{{ url_for('admin.dashboard') }}" class="text-sm text-indigo-600 hover:underline">← Kembali ke dashboard</a>
         <div class="flex items-center gap-2">
             <a href="{{ url_for('admin.laptop_export_pdf', device_id=device.id) }}" class="inline-flex items-center gap-1.5 bg-rose-600 hover:bg-rose-700 text-white text-xs font-medium px-3 py-1.5 rounded-lg">
-                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="1.6" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z"/></svg>
+                {{ icon('document', 'w-4 h-4') }}
                 Export PDF
             </a>
             <button onclick="window.print()" class="inline-flex items-center gap-1.5 border border-slate-200 bg-white text-slate-600 text-xs font-medium px-3 py-1.5 rounded-lg hover:bg-slate-50">
-                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="1.6" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M6.72 13.829c-.24.03-.48.062-.72.096m.72-.096a42.415 42.415 0 0 1 10.56 0m-10.56 0L6.34 18m10.94-4.171c.24.03.48.062.72.096m-.72-.096L17.66 18m0 0 .229 2.523a1.125 1.125 0 0 1-1.12 1.227H7.231c-.662 0-1.18-.568-1.12-1.227L6.34 18m11.318 0h1.091A2.25 2.25 0 0 0 21 15.75V9.456c0-1.081-.768-2.015-1.837-2.175a48.055 48.055 0 0 0-1.913-.247M6.34 18H5.25A2.25 2.25 0 0 1 3 15.75V9.456c0-1.081.768-2.015 1.837-2.175a48.041 48.041 0 0 1 1.913-.247"/></svg>
+                {{ icon('printer', 'w-4 h-4') }}
                 Cetak
             </button>
             <button id="btn-salin" onclick="salinLinkPublik()" class="inline-flex items-center gap-1.5 border border-slate-200 bg-white text-slate-600 text-xs font-medium px-3 py-1.5 rounded-lg hover:bg-slate-50">
-                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="1.6" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M13.19 8.688a4.5 4.5 0 0 1 1.242 7.244l-4.5 4.5a4.5 4.5 0 0 1-6.364-6.364l1.757-1.757m13.35-.622 1.757-1.757a4.5 4.5 0 0 0-6.364-6.364l-4.5 4.5a4.5 4.5 0 0 0 1.242 7.244"/></svg>
+                {{ icon('link', 'w-4 h-4') }}
                 Salin link untuk karyawan
             </button>
             <a href="{{ url_for('public.public_detail', device_id=device.id) }}" target="_blank" class="inline-flex items-center gap-1.5 border border-slate-200 bg-white text-slate-600 text-xs font-medium px-3 py-1.5 rounded-lg hover:bg-slate-50">
@@ -37,7 +33,7 @@
             </a>
             {% if latest %}
             <a href="{{ url_for('admin.edit_submission', submission_id=latest.id) }}" class="inline-flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-medium px-3 py-1.5 rounded-lg">
-                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="1.6" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L10.582 16.07a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931Zm0 0L19.5 7.125"/></svg>
+                {{ icon('pencil-square', 'w-4 h-4') }}
                 Edit data
             </a>
             <form method="POST" action="{{ url_for('admin.recalc_laptop', device_id=device.id) }}"
@@ -89,7 +85,7 @@
     {% if suggest and suggest.text %}
     <div class="rounded-xl border p-4 mb-4 {% if suggest.suggestion %}bg-sky-50 border-sky-200 text-sky-900{% else %}bg-rose-50 border-rose-200 text-rose-900{% endif %}">
         <div class="flex items-start gap-2">
-            <svg class="w-5 h-5 shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke-width="1.6" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M7.5 21 3 16.5m0 0L7.5 12M3 16.5h13.5m0-13.5L21 7.5m0 0L16.5 12M21 7.5H7.5"/></svg>
+            {{ icon('arrows-swap', 'w-5 h-5 shrink-0 mt-0.5') }}
             <div>
                 <div class="text-xs font-bold uppercase tracking-wide opacity-70 mb-0.5">Saran Penempatan</div>
                 <div class="text-sm font-semibold">{{ suggest.text }}</div>
@@ -544,9 +540,7 @@
     <!-- RIWAYAT -->
     <div class="bg-white rounded-xl border border-slate-200 overflow-hidden">
         <div class="px-5 py-3 border-b border-slate-200 font-semibold text-slate-700 text-sm flex items-center gap-2">
-            <svg class="w-4 h-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke-width="1.6" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z"/>
-            </svg>
+            {{ icon('clock', 'w-4 h-4 text-slate-400') }}
             Riwayat Pengisian ({{ submissions|length }})
             <span class="font-normal text-xs text-slate-400 ml-1">— skor & status di atas dihitung dari pengisian TERKINI</span>
         </div>
@@ -626,5 +620,4 @@
         }
     }
 </script>
-</body>
-</html>
+{% endblock %}

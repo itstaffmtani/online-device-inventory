@@ -1,13 +1,6 @@
-<!DOCTYPE html>
-<html lang="id">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Edit Data — Inventaris MTani</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <style>body { font-family: system-ui, sans-serif; }</style>
-</head>
-<body class="bg-slate-50 min-h-screen text-slate-800">
+{% extends "base.html" %}
+{% block title %}Edit Data — Inventaris MTani{% endblock %}
+{% block content %}
 <div class="container mx-auto px-4 py-8 max-w-4xl">
 
     <div class="flex items-center justify-between gap-3 flex-wrap mb-6">
@@ -86,5 +79,4 @@
         </div>
     </form>
 </div>
-</body>
-</html>
+{% endblock %}

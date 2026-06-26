@@ -20,7 +20,8 @@ Detail lengkap: **[docs/architecture.md](docs/architecture.md)**.
 
 ## Stack
 - **Backend:** Python 3 + Flask · **DB:** SQLite (file tunggal)
-- **Frontend:** HTML + Tailwind (CDN) + vanilla JS + ikon Heroicons (inline SVG); form 1 halaman di `templates/index.html`, landing di `templates/landing.html`
+- **Frontend:** Jinja terwariskan (`templates/base.html` + `base_public.html`) + Tailwind (CDN) + Alpine.js (CDN, tanpa build) + vanilla JS. Ikon Heroicons via registry tunggal `icons.py` → global Jinja `{{ icon('nama','w-5 h-5') }}` (bukan SVG inline lagi). Komponen macro di `templates/components/`. Form 1 halaman di `templates/index.html`, landing di `templates/landing.html`
+- **Migrasi DB:** yoyo-migrations (`migrations/*.sql` + wrapper `migrate.py`). Perubahan skema baru = file migrasi bernomor, bukan ALTER hardcoded di `db.py`. Lihat `migrations/README.md`
 - **Collector:** 1 file `.bat` self-contained / polyglot batch+PowerShell (Windows), `bash .sh` (Mac/Linux) — **tanpa install**
 - **Export:** XLSX (`openpyxl`)
 
@@ -28,7 +29,12 @@ Detail lengkap: **[docs/architecture.md](docs/architecture.md)**.
 ```
 app.py                 # server Flask (akan dirombak: hapus /api/diagnostik & Apps Script)
 hardware_service.py    # deteksi hardware (REFERENSI untuk port ke collector)
-templates/index.html   # form publik 1 halaman (Tailwind + Heroicons)
+icons.py               # registry ikon Heroicons -> global Jinja icon()
+migrate.py             # CLI migrasi DB (yoyo): apply/list/rollback/mark
+migrations/            # file migrasi skema bernomor (.sql) + README
+templates/base.html    # kerangka HTML bersama (head, Tailwind, Alpine, blocks)
+templates/components/  # macro UI (status_badge, pill)
+templates/index.html   # form publik 1 halaman (extends base_public.html)
 templates/landing.html # halaman utama: konteks + unduh collector
 docs/
   architecture.md      # alur data, kontrak collector, endpoint, keamanan

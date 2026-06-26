@@ -61,6 +61,11 @@ def create_app():
     # Filter Jinja: format timestamp gaya Indonesia.
     app.jinja_env.filters["fmt_dt"] = _fmt_dt
 
+    # Global Jinja: icon('nama', 'kelas') -> markup <svg> Heroicons dari registry
+    # tunggal (icons.py). Hentikan penyalinan SVG inline di banyak template.
+    from icons import render_icon
+    app.jinja_env.globals["icon"] = render_icon
+
     # Register blueprint.
     app.register_blueprint(public_bp)
     app.register_blueprint(admin_bp)

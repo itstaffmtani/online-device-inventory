@@ -262,6 +262,12 @@ CREATE TABLE {T} (
 
 # Kolom baru submissions yang ditambahkan via migrasi aditif (ALTER ADD COLUMN).
 # Tiap entri: (nama_kolom, definisi_tipe SQL).
+#
+# CATATAN MAINTENANCE: daftar ini sekarang LEGACY/BEKU. Mulai sekarang perubahan
+# skema BARU (tambah kolom/tabel) dibuat sebagai file migrasi yoyo di folder
+# migrations/ (lihat migrations/README.md), bukan ditambah ke daftar ini.
+# Daftar ini dipertahankan agar DB lama yang belum lewat baseline yoyo tetap
+# tersinkron saat init_db().
 _SUBMISSION_NEW_COLUMNS = [
     ("employee_id", "INTEGER REFERENCES employees(id)"),
     ("cpu_usage_pct", "REAL"),
