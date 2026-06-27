@@ -286,57 +286,55 @@ def score_spec(sub, profile, weights):
 # ---------------------------------------------------------------------------
 # §3 — Skor Beban
 # ---------------------------------------------------------------------------
-def _ram_pressure(pct):
-    """§3a — poin tekanan dari snapshot ram_usage_pct (float, tidak dibulatkan)."""
-    if pct is None:
-        return 100.0  # netral
-    if pct <= 60:
-        return 100.0
-    if pct <= 80:
-        return 100 - (pct - 60) / 20 * 30          # 100 -> 70
-    if pct <= 90:
-        return 70 - (pct - 80) / 10 * 30           # 70 -> 40
-    return _clamp(40 - (pct - 90) / 10 * 40, 0, 40)  # 40 -> 0
+def _pressure_points(pct):
+    """§3a — poin tekanan dari pemakaian (float, tidak dibulatkan).
 
-
-def _cpu_pressure(pct):
-    """§3a — poin tekanan dari snapshot cpu_usage_pct (rata-rata ~3s).
-
-    CPU wajar melonjak sesaat, jadi ambangnya sedikit lebih longgar dari RAM.
-    Tinggi-berkelanjutan = laptop ngos-ngosan untuk beban kerjanya.
+    Revisi 2026-06: 1 ramp LINIER (ganti piecewise per-tier lama). 100 bila
+    ≤ 60%, turun linier ke 0 saat mendekati 100%. None -> netral 100.
     """
     if pct is None:
         return 100.0  # netral
     if pct <= 60:
         return 100.0
-    if pct <= 80:
-        return 100 - (pct - 60) / 20 * 30          # 100 -> 70
-    if pct <= 92:
-        return 70 - (pct - 80) / 12 * 30           # 70 -> 40
-    return _clamp(40 - (pct - 92) / 8 * 40, 0, 40)   # 40 -> 0
+    if pct >= 100:
+        return 0.0
+    return 100.0 * (100 - pct) / 40.0   # 60%->100 .. 100%->0
 
 
 def score_load(sub, profile):
     """§3 — Skor Beban 0-100.
 
-    Tekanan = rata-rata sinyal beban NYATA yang tersedia (RAM terpakai + CPU
-    terpakai). Hanya sinyal yang ada datanya yang dirata-rata, sehingga submission
-    lama (tanpa cpu_usage_pct) tetap memakai tekanan RAM saja — angka tidak
-    berubah. Kecukupan = RAM fisik vs kebutuhan minimum peran.
+    Tekanan = ramp linier atas RATA-RATA sinyal beban NYATA yang tersedia (RAM
+    terpakai + CPU terpakai). Hanya sinyal yang ada datanya yang dirata-rata,
+    sehingga submission lama (tanpa cpu_usage_pct) tetap memakai tekanan RAM saja.
+    Kecukupan = RAM fisik vs kebutuhan minimum peran.
+
+    §A.5.A (revisi) — penalti penyimpanan OS berbasis RASIO: bila
+    os_free_gb/os_total_gb < 0.15 -> Skor Beban -10 (clamp ke 0). Alasan teks
+    ditambahkan di score_submission().
     """
     ram_pct = _num(sub.get("ram_usage_pct"))
     cpu_pct = _num(sub.get("cpu_usage_pct"))
     ram_gb = _num(sub.get("ram_gb")) or 0
 
-    parts = []
-    if ram_pct is not None:
-        parts.append(_ram_pressure(ram_pct))
-    if cpu_pct is not None:
-        parts.append(_cpu_pressure(cpu_pct))
-    pressure = sum(parts) / len(parts) if parts else 100.0
+    pcts = [p for p in (ram_pct, cpu_pct) if p is not None]
+    avg_pct = sum(pcts) / len(pcts) if pcts else None
+    pressure = _pressure_points(avg_pct)
 
     adequacy = _clamp(round(100 * ram_gb / profile["ram_min"]), 0, 100)
-    return round(0.5 * pressure + 0.5 * adequacy)
+    load = round(0.5 * pressure + 0.5 * adequacy)
+
+    if _os_storage_low(sub):
+        load = max(0, load - 10)
+    return load
+
+
+def _os_storage_low(sub):
+    """§A.5.A — True bila sisa penyimpanan OS < 15% dari total (berbasis rasio)."""
+    os_total = _num(sub.get("os_total_gb"))
+    os_free = _num(sub.get("os_free_gb"))
+    return bool(os_total and os_total > 0 and os_free is not None
+                and (os_free / os_total) < 0.15)
 
 
 # ---------------------------------------------------------------------------
@@ -460,9 +458,13 @@ def score_submission(sub: dict, current_year: int) -> dict:
         else:
             status = _lower_to(status, "upgrade")
         reasons.append("CPU di bawah batas bawah kelompok")
-    os_free = _num(sub.get("os_free_gb"))
-    if os_free is not None and os_free < 20:
-        reasons.append("Penyimpanan OS hampir penuh")
+    # §A.5.A (revisi 2026-06) — penalti penyimpanan OS berbasis RASIO. Skor Beban
+    # sudah dipotong -10 di score_load(); di sini hanya menambah alasannya.
+    if _os_storage_low(sub):
+        reasons.append(
+            "Sisa penyimpanan < 15%, performa sistem menurun drastis. "
+            "Segera bersihkan ruang penyimpanan."
+        )
 
     # §6 — penanda CPU diperkirakan.
     if sub.get("cpu_estimated"):
@@ -525,16 +527,17 @@ def score_submission(sub: dict, current_year: int) -> dict:
                 f"— penggantian tidak mendesak"
             )
 
-    # §5 — EOL.
+    # §5 — EOL. Revisi 2026-06: masa pakai RATA 5 tahun (buang penyesuaian ±1 by
+    # Skor Spek). Estimasi planning saja; tak memengaruhi skor/status.
     eol_year = None
     purchase_year = _num(sub.get("purchase_year"))
     if purchase_year:
         lifespan = int(round(settings["base_lifespan_years"]))
-        if spec >= 80:
-            lifespan += 1
-        if spec < 55:
-            lifespan -= 1
         eol_year = int(purchase_year) + lifespan
+
+    # §A.5.B — laptop personal: aset pribadi tak disusutkan perusahaan -> EOL NULL.
+    if (sub.get("laptop_status") or "").strip().lower() == "personal":
+        eol_year = None
 
     return {
         "score_spec": spec,
@@ -867,12 +870,25 @@ def suggest_placement(sub, current_year=None):
     # Urut: kebutuhan terberat (cpu_ideal) lebih dulu -> utilisasi maksimal.
     eligible.sort(key=lambda e: (e["cpu_ideal"], e["total"]), reverse=True)
 
-    # Best-fit = kelompok layak yang BUKAN kelompok sekarang.
-    suggestion = next((e for e in eligible if e["key"] != cur_key), None)
-
     cur_label = labels.get(cur_key, cur_key)
+
+    # §A.5.B/C (revisi 2026-06) — batasan rotasi:
+    #   personal   : aset pribadi tak ditukar-silang antar karyawan.
+    #   management : VIP, laptopnya tak pernah ditarik ke bawah untuk staf.
+    is_personal = (sub.get("laptop_status") or "").strip().lower() == "personal"
+    lock_rotation = is_personal or cur_key == "management"
+
+    # Best-fit = kelompok layak yang BUKAN kelompok sekarang (None bila terkunci).
+    suggestion = (None if lock_rotation
+                  else next((e for e in eligible if e["key"] != cur_key), None))
+
     text = None
-    if cur_status == "eligible":
+    if is_personal:
+        # §A.5.B — saran khusus aset pribadi bila performanya menghambat.
+        if cur_status != "eligible":
+            text = ("Performa aset pribadi menghambat produktivitas. Sediakan "
+                    "inventaris kantor (Rekomendasi teknis: [Tambah RAM/SSD]).")
+    elif cur_status == "eligible":
         # Sudah pas untuk perannya. Bila ada kelompok lebih berat yang juga layak,
         # tak perlu disarankan pindah (sudah cukup); biarkan text None.
         text = None
@@ -908,8 +924,8 @@ def seed_cpu_benchmarks(db_path=None):
 
 
 # ---------------------------------------------------------------------------
-# Tes mandiri — cocokkan contoh §7 scoring.md (skor 81 / Layak / 2027).
-# Jalankan: python scoring.py
+# Tes mandiri — cocokkan contoh §7 scoring.md (Standar Frugal: skor 80 / Layak /
+# 2027). Jalankan: python scoring.py
 # ---------------------------------------------------------------------------
 if __name__ == "__main__":
     example = {
@@ -921,11 +937,15 @@ if __name__ == "__main__":
         "ram_usage_pct": 75,
         "purchase_year": 2022,
     }
+    # Profil admin frugal: cpu_ideal 12.000, ram_ideal 16, ram_min 8,
+    # bobot .30/.30/.20/.20. CPU 100 · RAM 50 · Sto 100 · Bat 70 -> Spek 79.
+    # Tekanan linier RAM 75% = 62.5; adequacy 100 -> Beban 81.
+    # Total round(.7*79 + .3*81) = 80 -> Layak. EOL rata 5 th -> 2027.
     result = score_submission(example, current_year=2026)
     print("Hasil contoh §7:", result)
-    assert result["score_spec"] == 77, result["score_spec"]
-    assert result["score_load"] == 89, result["score_load"]
-    assert result["score_total"] == 81, result["score_total"]
+    assert result["score_spec"] == 79, result["score_spec"]
+    assert result["score_load"] == 81, result["score_load"]
+    assert result["score_total"] == 80, result["score_total"]
     assert result["status"] == "eligible", result["status"]
     assert result["eol_year"] == 2027, result["eol_year"]
     print("OK — semua angka cocok dengan contoh §7 scoring.md.")
@@ -950,7 +970,7 @@ if __name__ == "__main__":
     base = dict(example)
     base["disk_health_pct"] = None
     r_none = score_submission(base, current_year=2026)
-    assert r_none["score_spec"] == 77, r_none["score_spec"]
+    assert r_none["score_spec"] == 79, r_none["score_spec"]
 
     # D1 — disk_health rendah: faktor mengali storage + reason perawatan muncul,
     # tetapi status tidak dipaksa ke replace (tetap flag).
@@ -958,7 +978,7 @@ if __name__ == "__main__":
     low_disk["disk_health_pct"] = 30
     r_disk = score_submission(low_disk, current_year=2026)
     assert any("Kesehatan disk" in r for r in r_disk["status_reasons"]), r_disk
-    assert r_disk["score_spec"] < 77, r_disk["score_spec"]  # storage 100->50 turun
+    assert r_disk["score_spec"] < 79, r_disk["score_spec"]  # storage 100->50 turun
     print("OK — D1 kesehatan disk: netral bila None, flag & turunkan storage bila rendah.")
 
     # D2 — Windows 10 EOL: os_supported False + reason.
@@ -999,16 +1019,16 @@ if __name__ == "__main__":
 
     # --- Self-test BARU (2 sumbu: spek vs beban nyata) ---
 
-    # L1 — cpu_usage_pct kosong tidak mengubah Skor Beban contoh §7 (tetap 89).
+    # L1 — cpu_usage_pct kosong tidak mengubah Skor Beban contoh §7 (tetap 81).
     base_cpu = dict(example)
     assert "cpu_usage_pct" not in base_cpu
     r_nocpu = score_submission(base_cpu, current_year=2026)
-    assert r_nocpu["score_load"] == 89, r_nocpu["score_load"]
+    assert r_nocpu["score_load"] == 81, r_nocpu["score_load"]
 
-    # L2 — CPU terpakai tinggi MENURUNKAN Skor Beban (ikut tekanan, §3a).
+    # L2 — CPU terpakai tinggi MENURUNKAN Skor Beban (ikut tekanan linier §3a).
     hi_cpu = dict(example); hi_cpu["cpu_usage_pct"] = 95
     r_hicpu = score_submission(hi_cpu, current_year=2026)
-    assert r_hicpu["score_load"] < 89, r_hicpu["score_load"]
+    assert r_hicpu["score_load"] < 81, r_hicpu["score_load"]
     print("OK — L1/L2 beban CPU: netral bila kosong, turunkan Skor Beban bila tinggi.")
 
     # L3 — vonis 2 sumbu: spek layak + beban berat -> 'overloaded' + reason upgrade.
@@ -1027,3 +1047,56 @@ if __name__ == "__main__":
     v_poor = two_axis_verdict(40, 30); assert v_poor["quadrant"] == "poor", v_poor
     assert two_axis_verdict(None, 90) is None
     print("OK — L4 vonis: keempat kuadran (fit/overloaded/oversized/poor) benar.")
+
+    # --- Self-test BARU (Standar Frugal 2026-06) ---
+
+    # F1 — tekanan LINIER: 60% -> 100, 80% -> 50, 100% -> 0.
+    assert _pressure_points(60) == 100.0
+    assert _pressure_points(80) == 50.0
+    assert _pressure_points(100) == 0.0
+    assert _pressure_points(None) == 100.0
+    print("OK — F1 tekanan linier (60/80/100% -> 100/50/0).")
+
+    # F2 — EOL rata 5 tahun: spek tinggi/rendah tak lagi menggeser ±1.
+    strong = dict(example); strong["cpu_passmark"] = 40000; strong["ram_gb"] = 32
+    r_strong = score_submission(strong, current_year=2026)
+    assert r_strong["score_spec"] >= 80 and r_strong["eol_year"] == 2027, r_strong
+    weak = dict(example); weak["cpu_passmark"] = 3000; weak["ram_gb"] = 4
+    r_weak = score_submission(weak, current_year=2026)
+    assert r_weak["eol_year"] == 2027, r_weak  # tetap +5, bukan +4
+    print("OK — F2 EOL rata 5 tahun (tanpa penyesuaian ±1 by spek).")
+
+    # F3 — penalti penyimpanan OS berbasis RASIO (<15% sisa) -> Beban -10 + alasan.
+    full_disk = dict(example)
+    full_disk["os_total_gb"] = 256; full_disk["os_free_gb"] = 20  # ~7.8% sisa
+    r_full = score_submission(full_disk, current_year=2026)
+    assert r_full["score_load"] == r_nocpu["score_load"] - 10, r_full["score_load"]
+    assert any("Sisa penyimpanan < 15%" in r for r in r_full["status_reasons"]), r_full
+    roomy = dict(example)
+    roomy["os_total_gb"] = 256; roomy["os_free_gb"] = 100  # ~39% sisa -> aman
+    r_roomy = score_submission(roomy, current_year=2026)
+    assert r_roomy["score_load"] == r_nocpu["score_load"], r_roomy["score_load"]
+    print("OK — F3 penalti penyimpanan OS rasio <15% (-10 Beban + alasan).")
+
+    # F4 — laptop personal: EOL NULL + dikecualikan/override saran rotasi.
+    personal_weak = {
+        "work_group": "finance", "laptop_status": "personal",
+        "cpu_passmark": 4000, "ram_gb": 4, "ssd_type": "", "hdd_gb": 500,
+        "purchase_year": 2022,
+    }
+    r_pers = score_submission(personal_weak, current_year=2026)
+    assert r_pers["eol_year"] is None, r_pers["eol_year"]
+    place_pers = suggest_placement(personal_weak)
+    assert place_pers["suggestion"] is None, place_pers
+    assert place_pers["text"] and "aset pribadi" in place_pers["text"], place_pers
+    print("OK — F4 personal: EOL NULL, rotasi dikunci, saran inventaris kantor.")
+
+    # F5 — proteksi rotasi Manajemen (VIP): laptop GM tak disarankan ditarik ke bawah.
+    gm = {
+        "work_group": "management",
+        "cpu_passmark": 9000, "ram_gb": 8, "ssd_type": "NVMe", "ssd_gb": 256,
+        "purchase_year": 2023,
+    }
+    place_gm = suggest_placement(gm)
+    assert place_gm["suggestion"] is None, place_gm  # tak pernah dirotasi ke bawah
+    print("OK — F5 proteksi rotasi Manajemen: tak disarankan ditarik untuk staf.")

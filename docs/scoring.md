@@ -2,6 +2,17 @@
 
 Dokumen ini adalah **sumber kebenaran untuk manusia** (rumus & makna).
 
+> ✅ **REVISI "STANDAR FRUGAL" SUDAH DITERAPKAN (2026-06).** Angka di dokumen ini
+> sudah final & mencerminkan kode. Ringkasan keputusan yang diterapkan:
+> (1) profil **Standar Frugal** (CPU ideal turun, mis. admin 18.000→12.000;
+> **Lapangan = Administrasi**) + **bobot per kelompok**; (2) ambang **Ganti**
+> menyempit (`status_upgrade_min` 45→**35**); (3) tekanan pemakaian → **linier**
+> (buang piecewise); (4) EOL → **rata 5 tahun** (buang ±1); (5) penalti OS storage
+> berbasis **rasio < 15%** (−10 Skor Beban); (6) logika **kepemilikan personal** &
+> **proteksi rotasi Manajemen**. Data CPU dibangun ulang dari PassMark resmi
+> (`data/passmark_single_cpu_intel_amd.csv`). Latar/keputusan lengkap diarsipkan di
+> [scoring-revisi-2026-06.md](scoring-revisi-2026-06.md).
+
 > **PENTING (perubahan):** angka parameter (profil per kelompok, bobot komponen,
 > ambang status, masa pakai EOL, blend total) kini **DATA-DRIVEN**: tersimpan di
 > DB (`work_groups` + `scoring_settings`), bukan lagi konstanta mati. Admin
@@ -31,18 +42,25 @@ Untuk tiap laptop (submission terbaru):
 Angka PassMark di bawah adalah **anchor perkiraan** dari CPU acuan PDF —
 **verifikasi & seed dari cpubenchmark.net** saat mengisi tabel `cpu_benchmarks`.
 
-| Kelompok | CPU floor | CPU ideal | RAM min | RAM ideal | CPU acuan (PDF) |
-|---|---:|---:|---:|---:|---|
-| `field` | 8.000 | 16.000 | 8 | 16 | Ryzen 3 7320U → Ryzen 5 7530U |
-| `admin` | 12.000 | 18.000 | 8 | 16 | i3-1315U → i5-1335U |
-| `finance` | 17.000 | 26.000 | 16 | 32 | i5-1335U → Ultra 5 / Ryzen 7 |
-| `data_processing` | 17.000 | 26.000 | 16 | 32 | i5-1335U → Ultra 5 / Ryzen 7 |
-| `management` | 15.000 | 24.000 | 16 | 16 | i5/Ryzen 5 → Ultra 5/Ryzen 7 |
-| `it` | 17.000 | 24.000 | 16 | 32 | Ryzen 5 7535HS → Ryzen 7 7735HS / Ultra 7 |
+**Standar Frugal (2026-06).** Target operasional umum = setara Intel Core i3 Gen
+12 / Ryzen 3 (PassMark ≈ 12.000); divisi teknis berat (IT/Keuangan/Data) ≥ 16.000.
 
-> Catatan: `finance` & `data_processing` dasarnya sama (Excel/data berat), tetap
-> dipisah agar laporan bisa membedakan. `management` RAM ideal 16 (32 hanya bila
-> ada kebutuhan data khusus) — bobot baterai/portabilitas lebih tinggi (§3).
+| Kelompok | CPU floor | CPU ideal | RAM min | RAM ideal |
+|---|---:|---:|---:|---:|
+| `field` | 6.000 | 12.000 | 8 | 16 |
+| `admin` | 6.000 | 12.000 | 8 | 16 |
+| `marketing` | 6.000 | 12.000 | 8 | 16 |
+| `hr` | 6.000 | 12.000 | 8 | 16 |
+| `management` | 8.000 | 14.000 | 8 | 16 |
+| `finance` | 10.000 | 16.000 | 8 | 16 |
+| `data_processing` | 10.000 | 16.000 | 8 | 16 |
+| `design` | 10.000 | 16.000 | 8 | 16 |
+| `it` | 14.000 | 22.000 | 16 | 32 |
+
+> Catatan: **Lapangan = Administrasi** (profil & bobot identik). `finance` &
+> `data_processing` dasarnya sama (Excel/data berat), tetap dipisah agar laporan
+> bisa membedakan. Hanya `it` yang menuntut RAM 16/32; sisanya 8/16 (efisiensi
+> budget). `other` memakai profil `admin`. Bobot komponen per kelompok di §2e.
 
 ---
 
@@ -90,13 +108,17 @@ battery_points = clamp(round(health), 0, 100)
 - Bila tak ada baterai (PC desktop) atau data kosong → **netral**, komponen ini
   dikeluarkan dari rata-rata berbobot (bobotnya dibagikan ke komponen lain).
 
-### 2e. Bobot komponen (default)
-| Komponen | Bobot umum | Bobot `management` |
-|---|---:|---:|
-| CPU | 35% | 30% |
-| RAM | 30% | 25% |
-| Storage | 20% | 20% |
-| Battery | 15% | 25% |
+### 2e. Bobot komponen (per kelompok, Standar Frugal 2026-06)
+Tiap baris berjumlah 1.0.
+
+| Kelompok | W_CPU | W_RAM | W_Storage | W_Battery |
+|---|---:|---:|---:|---:|
+| `field` `admin` `marketing` `hr` `other` | 0.30 | 0.30 | 0.20 | 0.20 |
+| `management` | 0.30 | 0.25 | 0.20 | 0.25 |
+| `finance` | 0.30 | 0.40 | 0.10 | 0.20 |
+| `data_processing` | 0.30 | 0.40 | 0.15 | 0.15 |
+| `design` | 0.35 | 0.35 | 0.15 | 0.15 |
+| `it` | 0.40 | 0.35 | 0.15 | 0.10 |
 
 ```
 Skor Spek = Σ(poin_komponen * bobot) / Σ(bobot komponen yang dipakai)
@@ -109,29 +131,24 @@ Mengukur apakah laptop sanggup menahan beban kerja nyata. Dua faktor: **tekanan
 pemakaian nyata** (RAM + CPU terpakai) dan **kecukupan RAM** terhadap peran.
 
 ### 3a. Tekanan pemakaian (snapshot `ram_usage_pct` + `cpu_usage_pct`)
-Tekanan RAM (`ram_usage_pct`):
-| ram_usage_pct saat capture | Poin tekanan |
-|---|---:|
-| ≤ 60% | 100 |
-| 60–80% | 100 → 70 (linear) |
-| 80–90% | 70 → 40 (linear) |
-| > 90% | 40 → 0 (linear, mepet penuh) |
+**Standar Frugal 2026-06: 1 ramp LINIER** (menggantikan piecewise per-tier lama —
+lebih mudah dijelaskan). Ambil **rata-rata** dari sinyal beban yang ADA datanya
+(RAM dan/atau CPU), lalu petakan:
 
-Tekanan CPU (`cpu_usage_pct`, rata-rata ~3 detik — CPU wajar melonjak sesaat,
-jadi ambangnya sedikit lebih longgar):
-| cpu_usage_pct saat capture | Poin tekanan |
+| rata-rata pemakaian | Poin tekanan |
 |---|---:|
 | ≤ 60% | 100 |
-| 60–80% | 100 → 70 (linear) |
-| 80–92% | 70 → 40 (linear) |
-| > 92% | 40 → 0 (linear) |
+| 60–100% | 100 → 0 (linier) |
+| 100% | 0 |
 
 ```
-poin_tekanan = rata-rata dari sinyal yang ADA datanya (RAM dan/atau CPU)
+avg_pct      = rata-rata dari (ram_usage_pct, cpu_usage_pct) yang tersedia
+poin_tekanan = 100                       , bila avg_pct ≤ 60
+             = 100 * (100 - avg_pct) / 40, bila 60 < avg_pct < 100
+             = 0                          , bila avg_pct ≥ 100
 ```
 Bila RAM **dan** CPU kosong → netral 100. Bila hanya salah satu → pakai yang ada
-(submission lama tanpa `cpu_usage_pct` tetap memakai tekanan RAM saja → Skor Beban
-tidak berubah).
+(submission lama tanpa `cpu_usage_pct` tetap memakai tekanan RAM saja).
 
 ### 3b. Kecukupan RAM terhadap peran
 ```
@@ -170,18 +187,18 @@ sumbu** (`two_axis_verdict()` di `scoring.py`), ambang biner = `status_eligible_
 Tentukan dari **Skor Total**, lalu terapkan **aturan paksa** yang bisa menurunkan
 status (override) beserta alasannya.
 
-### 4a. Dari skor
+### 4a. Dari skor (Standar Frugal 2026-06: pita Ganti menyempit)
 | Skor Total | Status |
 |---|---|
 | 70–100 | `Layak` |
-| 45–69 | `Upgrade` |
-| 0–44 | `Ganti` |
+| 35–69 | `Upgrade` |
+| 0–34 | `Ganti` |
 
 ### 4b. Aturan paksa (override + alasan ditambahkan ke `status_reasons`)
 - `ram_gb < profil.ram_min` → minimal `Upgrade`, alasan: *"RAM {x}GB di bawah minimum {min}GB untuk kelompok {grup} — tambah RAM"*.
 - HDD saja (tidak ada SSD) → minimal `Upgrade`, alasan: *"Belum SSD — ganti ke SSD"*.
 - `cpu_passmark < profil.cpu_floor` → minimal `Upgrade`; bila `< 0.6 * cpu_floor` → `Ganti`, alasan: *"CPU di bawah batas bawah kelompok"*.
-- `os_free_gb < 20` → tambah alasan (tidak menaikkan status): *"Penyimpanan OS hampir penuh"*.
+- **Penyimpanan OS (rasio, Standar Frugal 2026-06):** `os_free_gb / os_total_gb < 0.15` → **Skor Beban −10** (§3) + alasan: *"Sisa penyimpanan < 15%, performa sistem menurun drastis. Segera bersihkan ruang penyimpanan."* (menggantikan aturan absolut `< 20 GB` lama).
 
 ### 4c. Catatan komponen (bukan status laptop, tapi flag terpisah)
 - `battery_health < 60%` → flag *"Baterai sehat <60% — pertimbangkan ganti baterai"*.
@@ -192,14 +209,15 @@ status (override) beserta alasannya.
 ---
 
 ## 5. Estimasi Tahun Pensiun (EOL)
-Asumsi masa pakai dasar **5 tahun** sejak pembelian, disesuaikan kualitas spek:
+Masa pakai **rata 5 tahun** sejak pembelian (Standar Frugal 2026-06: penyesuaian
+±1 by Skor Spek **dibuang** — fitur minor, low-stakes; estimasi planning saja, tak
+memengaruhi skor/status):
 ```
-masa_pakai = 5
-if Skor Spek >= 80: masa_pakai += 1     # spek kuat, awet lebih lama
-if Skor Spek <  55: masa_pakai -= 1     # spek pas-pasan, pensiun lebih cepat
-eol_year = purchase_year + masa_pakai
+eol_year = purchase_year + 5
 ```
 - Bila `purchase_year` kosong → EOL tidak dihitung (tampilkan "—", minta lengkapi).
+- **Laptop personal** (`laptop_status = personal`) → `eol_year = NULL` (aset pribadi
+  tak disusutkan perusahaan).
 - Bila `status = Ganti` atau `eol_year <= tahun_sekarang` → tampilkan
   **"Sudah waktunya diganti"**.
 - `tahun_sekarang` diambil dari server saat scoring (jangan hardcode).
@@ -217,24 +235,25 @@ eol_year = purchase_year + masa_pakai
 
 ---
 
-## 7. Contoh perhitungan (ilustrasi)
+## 7. Contoh perhitungan (ilustrasi — Standar Frugal 2026-06)
 **Laptop admin, Ryzen 5 7530U (PassMark ~16.000), RAM 8GB, SSD NVMe, baterai
 health 70%, RAM usage 75%, beli 2022.**
-Profil `admin`: cpu_ideal 18.000, ram_ideal 16, ram_min 8.
+Profil `admin` (frugal): cpu_ideal 12.000, ram_ideal 16, ram_min 8.
+Bobot `admin`: CPU .30 · RAM .30 · Storage .20 · Battery .20.
 
-- CPU points = 100*16000/18000 = **89**
+- CPU points = clamp(100*16000/12000) = clamp(133) = **100**
 - RAM points = 100*8/16 = **50**
 - Storage = **100** (NVMe)
 - Battery = **70**
-- Skor Spek = (89*.35 + 50*.30 + 100*.20 + 70*.15)/1.0 = 31.15+15+20+10.5 = **77**
-- Tekanan RAM (75%) = 100 - (75-60)/(80-60)*30 = 100-22.5 = **77.5**
+- Skor Spek = 100*.30 + 50*.30 + 100*.20 + 70*.20 = 30+15+20+14 = **79**
+- Tekanan (linier, RAM 75%) = 100*(100-75)/40 = **62.5**
 - RAM adequacy = 100*8/8 = **100**
-- Skor Beban = round(.5*77.5 + .5*100) = **89**
-- Skor Total = round(.7*77 + .3*89) = round(53.9+26.7) = **81 → Layak**
+- Skor Beban = round(.5*62.5 + .5*100) = **81**
+- Skor Total = round(.7*79 + .3*81) = round(55.3+24.3) = **80 → Layak**
 - Override: ram_gb(8) == ram_min(8) → tidak kena. SSD ada → aman.
-- EOL: Skor Spek 77 (tak ≥80, tak <55) → masa_pakai 5 → **2027**.
+- EOL: rata 5 tahun → 2022+5 = **2027**.
 
-Hasil: **Skor 81 · Layak · pensiun ~2027**, catatan baterai 70% (masih wajar).
+Hasil: **Skor 80 · Layak · pensiun ~2027**, catatan baterai 70% (masih wajar).
 
 ---
 
@@ -314,14 +333,23 @@ tetapi cocok untuk Administrasi"*.
 - Teks: bila kelompok sekarang sudah layak → tak ada saran; bila kurang tapi ada
   kelompok lain yang cocok → sarankan pindah; bila tak layak di mana pun →
   *"kandidat peremajaan/penggantian"*.
+- **Kepemilikan personal (Standar Frugal 2026-06):** `laptop_status = personal`
+  **dikecualikan** dari rotasi (tak ditukar-silang antar karyawan; `suggestion`
+  selalu None). Bila kurang untuk perannya → saran khusus: *"Performa aset pribadi
+  menghambat produktivitas. Sediakan inventaris kantor (Rekomendasi teknis:
+  [Tambah RAM/SSD])."*
+- **Proteksi rotasi Manajemen (VIP):** kelompok `management` dikunci dari rotasi ke
+  bawah — laptop GM **tak pernah** disarankan ditarik untuk staf (`suggestion`
+  None).
 - Tampil di: detail laptop & karyawan (admin), kolom indikator dashboard, dan
   kolom **"Saran Penempatan"** pada export XLSX.
 
 ---
 
 ## 11. Catatan kelompok kerja (data-driven)
-Kelompok kini disimpan di tabel `work_groups` (seed di `scoring_config.py`):
-6 kelompok asli + **marketing**, **design**, **hr** (placeholder, kalibrasi via
-UI) + `other`. Admin dapat menambah/menonaktifkan kelompok & mengubah profil
-lewat `/admin/skoring`. Submission baru otomatis pakai parameter terbaru; data
-lama diperbarui via tombol **"Hitung ulang semua"**.
+Kelompok disimpan di tabel `work_groups` (seed di `scoring_config.py`): 6 kelompok
+asli + **marketing**, **design**, **hr** (Standar Frugal 2026-06: kini **aktif**
+dengan profil pasti, bukan lagi placeholder) + `other`. Admin dapat
+menambah/menonaktifkan kelompok & mengubah profil lewat `/admin/skoring`.
+Submission baru otomatis pakai parameter terbaru; data lama diperbarui via tombol
+**"Hitung ulang semua"** (atau skrip `migrate_frugal_2026_06.py` untuk seed paksa).

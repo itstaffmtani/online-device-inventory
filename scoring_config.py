@@ -15,35 +15,45 @@
 import sqlite3
 
 # ---------------------------------------------------------------------------
-# DEFAULT — seed awal (identik dengan konstanta lama scoring.py) + 3 kelompok
-# baru. Admin dapat mengubah semuanya lewat UI; nilai baru tersimpan di DB.
-# Bobot: kelompok lama memakai bobot umum kecuali 'management'. Kelompok baru
-# memakai placeholder yang masuk akal — WAJIB dikalibrasi admin (docs/scoring.md §8).
+# DEFAULT — seed awal "Standar Frugal" (docs/scoring-revisi-2026-06.md §A.6,
+# dieksekusi 2026-06). Target operasional umum = setara Intel Core i3 Gen 12 /
+# Ryzen 3 (PassMark ≈ 12.000); divisi teknis berat (IT/Keuangan/Data) ≥ 16.000.
+# Tiap baris bobot W_* WAJIB berjumlah 1.0. Admin dapat mengubah semuanya lewat
+# UI (/admin/skoring); nilai baru tersimpan di DB.
+#
+# Keputusan 2026-06: Lapangan = Administrasi (profil & bobot identik); penekanan
+# baterai khas Lapangan dilepas. Semua kelompok kini punya bobot khas.
 # ---------------------------------------------------------------------------
-_W_DEFAULT = {"cpu": 0.35, "ram": 0.30, "storage": 0.20, "battery": 0.15}
+# Bobot per kelompok (jumlah tiap baris = 1.0).
+_W_GENERAL = {"cpu": 0.30, "ram": 0.30, "storage": 0.20, "battery": 0.20}  # field/admin/hr/marketing
 _W_MANAGEMENT = {"cpu": 0.30, "ram": 0.25, "storage": 0.20, "battery": 0.25}
+_W_FINANCE = {"cpu": 0.30, "ram": 0.40, "storage": 0.10, "battery": 0.20}
+_W_DATA = {"cpu": 0.30, "ram": 0.40, "storage": 0.15, "battery": 0.15}
+_W_DESIGN = {"cpu": 0.35, "ram": 0.35, "storage": 0.15, "battery": 0.15}
+_W_IT = {"cpu": 0.40, "ram": 0.35, "storage": 0.15, "battery": 0.10}
 
 # Tiap entri: (key, label, cpu_floor, cpu_ideal, ram_min, ram_ideal, weights,
 #              sort_order, is_builtin)
 _DEFAULT_GROUPS = [
-    ("field",           "Lapangan",        8000,  16000, 8,  16, _W_DEFAULT,    10,  1),
-    ("admin",           "Administrasi",    12000, 18000, 8,  16, _W_DEFAULT,    20,  1),
-    ("finance",         "Keuangan",        17000, 26000, 16, 32, _W_DEFAULT,    30,  1),
-    ("data_processing", "Pengolahan Data", 17000, 26000, 16, 32, _W_DEFAULT,    40,  1),
-    ("management",      "Manajemen",       15000, 24000, 16, 16, _W_MANAGEMENT, 50,  1),
-    ("it",              "IT",              17000, 24000, 16, 32, _W_DEFAULT,    60,  1),
-    # — Kelompok baru (placeholder; kalibrasi lewat UI) —
-    ("marketing",       "Marketing/Sales", 12000, 18000, 8,  16, _W_DEFAULT,    70,  0),
-    ("design",          "Design/Kreatif",  17000, 26000, 16, 32, _W_DEFAULT,    80,  0),
-    ("hr",              "HR/GA",           10000, 16000, 8,  16, _W_DEFAULT,    90,  0),
+    ("field",           "Lapangan",        6000,  12000, 8,  16, _W_GENERAL,    10,  1),
+    ("admin",           "Administrasi",    6000,  12000, 8,  16, _W_GENERAL,    20,  1),
+    ("finance",         "Keuangan",        10000, 16000, 8,  16, _W_FINANCE,    30,  1),
+    ("data_processing", "Pengolahan Data", 10000, 16000, 8,  16, _W_DATA,       40,  1),
+    ("management",      "Manajemen",       8000,  14000, 8,  16, _W_MANAGEMENT, 50,  1),
+    ("it",              "IT",              14000, 22000, 16, 32, _W_IT,         60,  1),
+    # — Kelompok lain (Standar Frugal; aktif) —
+    ("marketing",       "Marketing/Sales", 6000,  12000, 8,  16, _W_GENERAL,    70,  1),
+    ("design",          "Design/Kreatif",  10000, 16000, 8,  16, _W_DESIGN,     80,  1),
+    ("hr",              "HR/GA",           6000,  12000, 8,  16, _W_GENERAL,    90,  1),
     # — 'other' selalu terakhir: teks bebas (work_group_other), profil = admin —
-    ("other",           "Lainnya",         12000, 18000, 8,  16, _W_DEFAULT,    999, 1),
+    ("other",           "Lainnya",         6000,  12000, 8,  16, _W_GENERAL,    999, 1),
 ]
 
-# Ambang global default (scoring.md §4a, §5, §0).
+# Ambang global default (scoring.md §4a, §5, §0). Revisi 2026-06: pita Ganti
+# menyempit (status_upgrade_min 45 -> 35); EOL rata 5 tahun (tanpa penyesuaian ±1).
 _DEFAULT_SETTINGS = {
     "status_eligible_min": 70.0,   # skor >= ini -> Layak
-    "status_upgrade_min":  45.0,   # skor >= ini -> Upgrade, di bawahnya -> Ganti
+    "status_upgrade_min":  35.0,   # skor >= ini -> Upgrade, di bawahnya -> Ganti
     "base_lifespan_years": 5.0,    # masa pakai dasar EOL
     "blend_spec":          0.7,    # bobot Skor Spek pada Skor Total
     "blend_load":          0.3,    # bobot Skor Beban pada Skor Total
@@ -99,6 +109,41 @@ def ensure_tables(conn):
     for k, v in _DEFAULT_SETTINGS.items():
         conn.execute(
             "INSERT OR IGNORE INTO scoring_settings (key, value) VALUES (?, ?)",
+            (k, v),
+        )
+    conn.commit()
+
+
+def reseed_defaults(conn):
+    """Tulis-paksa seluruh DEFAULT (groups + settings) ke DB — MENIMPA baris yang
+    sudah ada (kebalikan ensure_tables yang INSERT OR IGNORE).
+
+    Dipakai saat eksekusi revisi parameter (mis. Standar Frugal 2026-06): nilai
+    seed baru harus benar-benar masuk meski baris kelompok sudah pernah dibuat.
+    PERINGATAN: menimpa kustomisasi admin pada kolom profil/bobot/label/aktif.
+    Setelah ini, jalankan "Hitung ulang semua" agar skor lama ikut diperbarui.
+    """
+    conn.executescript(_SCHEMA)
+    for (key, label, cf, ci, rm, ri, w, order, builtin) in _DEFAULT_GROUPS:
+        conn.execute(
+            """INSERT INTO work_groups
+                 (key, label, cpu_floor, cpu_ideal, ram_min, ram_ideal,
+                  w_cpu, w_ram, w_storage, w_battery, sort_order, is_active, is_builtin)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)
+               ON CONFLICT(key) DO UPDATE SET
+                 label=excluded.label, cpu_floor=excluded.cpu_floor,
+                 cpu_ideal=excluded.cpu_ideal, ram_min=excluded.ram_min,
+                 ram_ideal=excluded.ram_ideal, w_cpu=excluded.w_cpu,
+                 w_ram=excluded.w_ram, w_storage=excluded.w_storage,
+                 w_battery=excluded.w_battery, sort_order=excluded.sort_order,
+                 is_active=excluded.is_active, is_builtin=excluded.is_builtin""",
+            (key, label, cf, ci, rm, ri,
+             w["cpu"], w["ram"], w["storage"], w["battery"], order, builtin),
+        )
+    for k, v in _DEFAULT_SETTINGS.items():
+        conn.execute(
+            "INSERT INTO scoring_settings (key, value) VALUES (?, ?) "
+            "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
             (k, v),
         )
     conn.commit()

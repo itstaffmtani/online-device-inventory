@@ -22,6 +22,9 @@ Enum work_group {
   data_processing [note: 'Analis / pengguna Excel berat / data']
   management      [note: 'Manager / GM']
   it              [note: 'IT & Development']
+  marketing       [note: 'Marketing / Sales']
+  design          [note: 'Design / Kreatif']
+  hr              [note: 'HR / GA']
   other           [note: 'Lainnya — diisi bebas oleh user di work_group_other']
 }
 

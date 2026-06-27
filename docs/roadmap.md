@@ -42,7 +42,14 @@ Centang saat selesai.
 - [x] `scoring.py` implement [scoring.md](scoring.md): skor spek, beban, total,
       status + alasan, EOL. Plus fallback CPU tak dikenal (estimasi via thread).
 - [x] Panggil scoring saat submit (simpan hasil ke submission).
-- [ ] Script re-score semua submission terbaru (untuk kalibrasi ulang). *(belum)*
+- [x] Script re-score semua submission terbaru (`migrate_frugal_2026_06.py`
+      `recalc_all()` + tombol admin `/admin/recalc-all`).
+- [x] **Revisi Standar Frugal (2026-06)** — eksekusi
+      [scoring-revisi-2026-06.md](scoring-revisi-2026-06.md) §D: rebuild data CPU
+      dari `passmark_single_cpu_intel_amd.csv` (`rebuild_cpu_seed.py` → 4.536 baris),
+      seed frugal + bobot per kelompok, ambang Ganti 45→35, tekanan linier, EOL
+      rata 5 th, penalti OS rasio, logika personal & proteksi rotasi Manajemen,
+      lalu "Hitung ulang semua" (`migrate_frugal_2026_06.py`).
 - **Tes:** cocokkan contoh §7 scoring.md → angka sama (`python scoring.py`). ✅
 
 ## Fase 5 — Admin (dashboard)
