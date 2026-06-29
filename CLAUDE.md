@@ -32,6 +32,10 @@ hardware_service.py    # deteksi hardware (REFERENSI untuk port ke collector)
 icons.py               # registry ikon Heroicons -> global Jinja icon()
 migrate.py             # CLI migrasi DB (yoyo): apply/list/rollback/mark
 migrations/            # file migrasi skema bernomor (.sql) + README
+migrate_*_2026_06.py   # skrip migrasi data one-off (mis. revisi kelompok/profil), idempoten
+routes_admin.py        # dashboard, /admin/skoring, /admin/report, export XLSX/PDF
+routes_public.py       # landing + form publik + /api/submit
+scoring_config.py      # profil kebutuhan & kelompok kerja (DB: scoring_profiles + work_groups)
 templates/base.html    # kerangka HTML bersama (head, Tailwind, Alpine, blocks)
 templates/components/  # macro UI (status_badge, pill)
 templates/index.html   # form publik 1 halaman (extends base_public.html)
@@ -66,14 +70,23 @@ python app.py                    # default http://127.0.0.1:8080
 - **Deteksi spek dilakukan collector di laptop karyawan**, dibawa ke form lewat
   **URL query param**. JANGAN pakai `/api/diagnostik` (itu baca spek server).
 - **Riwayat disimpan**; dashboard tampilkan submission terbaru per device.
-- **Kelompok kerja:** field, admin, finance, data_processing, management, it, **other** (Lainnya — teks bebas disimpan di `work_group_other`).
+- **Kelompok kerja (data-driven, tabel `work_groups`):** field, admin, finance,
+  data_processing, management, it, rpo, mandor, design, hr, **other** (Lainnya —
+  teks bebas di `work_group_other`). Tiap kelompok **menunjuk satu profil kebutuhan**
+  (tabel `scoring_profiles`); banyak kelompok boleh berbagi profil → admin edit profil
+  SEKALI, semua anggota ikut. Kelola via **`/admin/skoring`**. Detail: scoring.md §11.
 - **Skor:** 0-100 (spek + beban + total) + status (Layak/Upgrade/Ganti) + EOL.
-  CPU dinilai via tabel offline PassMark (`cpu_benchmarks`). Lihat scoring.md.
+  CPU dinilai via tabel offline PassMark (`cpu_benchmarks`). Parameter skoring
+  (profil/bobot/ambang) DATA-DRIVEN di DB, bukan magic number. Lihat scoring.md.
+  Laporan ringkas siap-tempel-ke-Word di **`/admin/report`**.
 - **Admin:** 1 password bersama (env `ADMIN_PASSWORD`), belum ada tabel user.
 - **Cakupan:** Windows + Mac/Linux. HP/tablet ditunda.
 
 ## Konvensi
-- **Bahasa Indonesia** untuk UI, label, pesan, dan komentar (ikuti gaya kode lama).
+- **Identifier kode** (route/fungsi/nama file) **Inggris** (mis. `/admin/report`, bukan
+  `/admin/laporan`); **Bahasa Indonesia** hanya untuk teks yang dilihat user (UI, label,
+  pesan) & komentar. Route lama yang sudah terlanjur Indonesia (`/admin/skoring`,
+  `/admin/karyawan`) dibiarkan kecuali diminta.
 - Nama field ikuti **[docs/schema.dbml](docs/schema.dbml)** & kontrak URL di architecture.md.
 - Angka/ambang scoring HANYA dari **[docs/scoring.md](docs/scoring.md)** (jangan sebar magic number di kode).
 - Sanitasi input sebelum simpan/ekspor (anti CSV/Excel formula injection).
