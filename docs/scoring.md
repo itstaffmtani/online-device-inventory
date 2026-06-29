@@ -190,6 +190,8 @@ sumbu** (`two_axis_verdict()` di `scoring.py`), ambang biner = `status_eligible_
 - Vonis ini **tidak** menghitung ulang skor. Beban nyata sudah ikut menarik Skor
   Total lewat Skor Beban (blend §0), dan untuk kuadran `overloaded`/`oversized`
   ditambahkan **alasan** ke `status_reasons` (menyebut CPU%/RAM% saat dicek).
+  Narasi ini **tidak** ditambahkan bila vonis akhir `Ganti` (mencegah kalimat
+  kontradiktif seperti "penggantian tidak mendesak" pada laptop berstatus Ganti).
 - Tampil di detail laptop & karyawan, halaman publik, dan kolom **"Spek vs Beban
   Nyata"** pada export XLSX.
 
@@ -209,7 +211,7 @@ status (override) beserta alasannya.
 ### 4b. Aturan paksa (override + alasan ditambahkan ke `status_reasons`)
 - `ram_gb < profil.ram_min` → minimal `Upgrade`, alasan: *"RAM {x}GB di bawah minimum {min}GB untuk kelompok {grup} — tambah RAM"*.
 - HDD saja (tidak ada SSD) → minimal `Upgrade`, alasan: *"Belum SSD — ganti ke SSD"*.
-- `cpu_passmark < profil.cpu_floor` → minimal `Upgrade`; bila `< 0.6 * cpu_floor` → `Ganti`, alasan: *"CPU di bawah batas bawah kelompok"*.
+- `cpu_passmark < profil.cpu_floor` → minimal `Upgrade` (**tidak pernah** memaksa `Ganti`). Alasan: *"CPU di bawah batas bawah kelompok"*. Vonis `Ganti` **hanya** datang dari Skor Total rendah (§4a), supaya vonis selaras dengan skor — mencegah anomali "skor tinggi tapi Ganti". (Aturan lama `< 0.6 × cpu_floor → Ganti` **dibuang** sejak 2026-06.)
 - **Penyimpanan OS (rasio, Standar Frugal 2026-06):** `os_free_gb / os_total_gb < 0.15` → **Skor Beban −10** (§3) + alasan: *"Sisa penyimpanan < 15%, performa sistem menurun drastis. Segera bersihkan ruang penyimpanan."* (menggantikan aturan absolut `< 20 GB` lama).
 
 ### 4c. Catatan komponen (bukan status laptop, tapi flag terpisah)

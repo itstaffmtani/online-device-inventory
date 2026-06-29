@@ -453,10 +453,10 @@ def score_submission(sub: dict, current_year: int) -> dict:
         status = _lower_to(status, "upgrade")
         reasons.append("Belum SSD — ganti ke SSD")
     if passmark and passmark < profile["cpu_floor"]:
-        if passmark < 0.6 * profile["cpu_floor"]:
-            status = _lower_to(status, "replace")
-        else:
-            status = _lower_to(status, "upgrade")
+        # CPU di bawah batas bawah -> MAKSIMAL Upgrade, tidak pernah memaksa "Ganti".
+        # Vonis "Ganti" hanya datang dari Skor Total rendah agar vonis selaras dengan
+        # skor (mencegah anomali "skor tinggi tapi Ganti").
+        status = _lower_to(status, "upgrade")
         reasons.append("CPU di bawah batas bawah kelompok")
     # §A.5.A (revisi 2026-06) — penalti penyimpanan OS berbasis RASIO. Skor Beban
     # sudah dipotong -10 di score_load(); di sini hanya menambah alasannya.
@@ -506,7 +506,9 @@ def score_submission(sub: dict, current_year: int) -> dict:
     # tambahkan alasan yang membongkar perkiraan peran. Tidak memaksa status —
     # beban nyata sudah ikut menarik Skor Total lewat score_load (blend §0).
     verdict = two_axis_verdict(spec, load, settings)
-    if verdict and verdict["quadrant"] in ("overloaded", "oversized"):
+    # Jangan tambahkan narasi dua-sumbu bila vonis akhir "Ganti" — mencegah kalimat
+    # kontradiktif (mis. "penggantian tidak mendesak" pada laptop berstatus Ganti).
+    if verdict and status != "replace" and verdict["quadrant"] in ("overloaded", "oversized"):
         cpu_use = _num(sub.get("cpu_usage_pct"))
         ram_use = _num(sub.get("ram_usage_pct"))
         bits = []
