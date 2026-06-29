@@ -83,14 +83,41 @@ sudo systemctl restart laptop-inventory
 ```
 
 ## Update versi berikutnya (rutin)
+> Selalu pakai **`./venv/bin/python`** (di Ubuntu `python` tidak ada — adanya
+> `python3`), dan jalankan sebagai **`www-data`** agar file DB tetap dimiliki service.
 ```bash
-cd /var/www/laptop-inventory
+cd /var/www/laptop-inventory                              # sesuaikan path instalasi Anda
 git pull
 ./venv/bin/pip install -r requirements.txt
 sudo cp data/inventory.db data/inventory.db.bak           # backup sebelum migrasi
-sudo -u www-data ./venv/bin/python migrate.py apply       # terapkan migrasi baru (bila ada)
+sudo -u www-data ./venv/bin/python migrate.py apply       # migrasi skema (bila ada)
+
+# Migrasi DATA one-off (bila rilis menyertakannya — lihat catatan rilis di bawah).
+# Skrip otomatis membaca env DB_PATH; muat .env dulu agar path DB prod terpakai:
+set -a; . ./.env; set +a
+sudo -u www-data -E ./venv/bin/python migrate_workgroups_2026_06.py
+
 sudo systemctl restart laptop-inventory
 ```
+Setelah restart: login `/admin/skoring` → **"Hitung ulang semua"** (agar skor lama
+ikut parameter baru), lalu cek `/admin/report`.
+
+### Rilis 2026-06 — model profil bersama & revisi kelompok
+Sekali jalan saat update ke rilis ini. Tabel baru (`scoring_profiles`) & kolom
+`profile_key` dibuat otomatis saat start, **tetapi** pembersihan data lama
+(hapus kelompok `marketing`, tambah `mandor`, gabung Keuangan+Pengolahan Data,
+hapus profil `olah_data`) **wajib** lewat skrip — `INSERT OR IGNORE` tak bisa
+menghapus/mengubah baris lama:
+```bash
+cd /var/www/laptop-inventory
+sudo cp data/inventory.db data/inventory.db.bak
+set -a; . ./.env; set +a                                  # ambil DB_PATH dari .env
+sudo -u www-data -E ./venv/bin/python migrate_workgroups_2026_06.py
+sudo systemctl restart laptop-inventory
+```
+Skrip **idempoten** (aman diulang) & **hanya menyentuh tabel konfigurasi**
+(`work_groups`/`scoring_profiles`) — `submissions`/`employees`/`devices` tidak
+disentuh. Selesai → `/admin/skoring` → "Hitung ulang semua".
 
 ## Troubleshooting
 - **502 Bad Gateway** → gunicorn mati: `journalctl -u laptop-inventory -n 50 --no-pager`.

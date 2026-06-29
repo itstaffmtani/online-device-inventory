@@ -64,9 +64,13 @@ def migrate(conn):
 
 
 if __name__ == "__main__":
-    db_path = sys.argv[1] if len(sys.argv) > 1 else os.path.join("data", "inventory.db")
+    # Prioritas path DB: argumen CLI > env DB_PATH (sama dengan app) > default lokal.
+    db_path = (sys.argv[1] if len(sys.argv) > 1
+               else os.environ.get("DB_PATH") or os.path.join("data", "inventory.db"))
+    print(f"DB: {db_path}")
     if not os.path.exists(db_path):
-        sys.exit(f"DB tidak ditemukan: {db_path}")
+        sys.exit(f"DB tidak ditemukan: {db_path} "
+                 "(beri path sebagai argumen, atau set env DB_PATH).")
     conn = sqlite3.connect(db_path)
     scoring_config._conn = lambda: conn
     migrate(conn)
