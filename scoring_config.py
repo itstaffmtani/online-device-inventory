@@ -65,7 +65,7 @@ _DEFAULT_GROUPS = [
 # Ambang global default (scoring.md §4a, §5, §0).
 _DEFAULT_SETTINGS = {
     "status_eligible_min": 70.0,   # skor >= ini -> Layak
-    "status_upgrade_min":  35.0,   # skor >= ini -> Upgrade, di bawahnya -> Ganti
+    "status_upgrade_min":  50.0,   # skor >= ini -> Upgrade, di bawahnya -> Ganti
     "base_lifespan_years": 5.0,    # masa pakai dasar EOL
     "blend_spec":          0.7,    # bobot Skor Spek pada Skor Total
     "blend_load":          0.3,    # bobot Skor Beban pada Skor Total

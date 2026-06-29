@@ -10,8 +10,9 @@ Dokumen ini adalah **sumber kebenaran untuk manusia** (rumus & makna).
 > ringan (cpu 3.500/7.000, ram 4/8) dengan **bobot baterai dominan 0.40** sesuai
 > pemakaian mobile; (3) `ram_ideal` operasional ringan (admin/marketing/other) turun
 > ke **8** (hanya HR yang tetap 16); (4) penyetelan ulang **bobot komponen** beberapa
-> kelompok. Tetap dipertahankan dari Standar Frugal: ambang **Ganti** menyempit
-> (`status_upgrade_min` **35**), tekanan pemakaian **linier**, EOL **rata 5 tahun**,
+> kelompok. Tetap dipertahankan dari Standar Frugal: tekanan pemakaian **linier**,
+> EOL **rata 5 tahun**, ambang **Ganti** `status_upgrade_min` (kini **50** —
+> dinaikkan dari 35 karena armada tua, lihat §4a),
 > penalti OS storage rasio **< 15%**, logika **kepemilikan personal** & **proteksi
 > rotasi Manajemen**. Latar Standar Frugal sebelumnya diarsipkan di
 > [scoring-revisi-2026-06.md](scoring-revisi-2026-06.md).
@@ -205,8 +206,14 @@ status (override) beserta alasannya.
 | Skor Total | Status |
 |---|---|
 | 70–100 | `Layak` |
-| 35–69 | `Upgrade` |
-| 0–34 | `Ganti` |
+| 50–69 | `Upgrade` |
+| 0–49 | `Ganti` |
+
+> **Kalibrasi 2026-06 (armada tua):** `status_upgrade_min` dinaikkan **35 → 50**.
+> Karena vonis `Ganti` kini **murni dari Skor Total** (aturan keras CPU tak lagi
+> memaksa `Ganti`, §4b), ambang 35 terlalu rendah untuk armada lama (skor terendah
+> ~36) sehingga nyaris tak ada yang `Ganti`. Nilai ini DATA-DRIVEN — setel di
+> `/admin/skoring` sesuai proporsi Layak/Upgrade/Ganti yang dikehendaki.
 
 ### 4b. Aturan paksa (override + alasan ditambahkan ke `status_reasons`)
 - `ram_gb < profil.ram_min` → minimal `Upgrade`, alasan: *"RAM {x}GB di bawah minimum {min}GB untuk kelompok {grup} — tambah RAM"*.
