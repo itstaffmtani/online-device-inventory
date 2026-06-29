@@ -1,0 +1,249 @@
+{% extends "base.html" %}
+{% block title %}Laporan Kelayakan Laptop — Inventaris MTani{% endblock %}
+
+{% block content %}
+{% set s = settings %}
+{% macro vonis(st) -%}
+  {% if st == 'eligible' %}<span style="color:#047857;font-weight:600">Layak</span>
+  {% elif st == 'upgrade' %}<span style="color:#b45309;font-weight:600">Upgrade</span>
+  {% elif st == 'replace' %}<span style="color:#b91c1c;font-weight:600">Ganti</span>
+  {% else %}<span style="color:#64748b">—</span>{% endif %}
+{%- endmacro %}
+
+<style>
+  /* Gaya ramah-Word: tabel bergaris, tipografi netral. Hanya berlaku di #laporan. */
+  #laporan { max-width: 880px; margin: 0 auto; background:#fff; color:#111;
+             font-family: Georgia, 'Times New Roman', serif; line-height:1.55; }
+  #laporan h1 { font-size: 22px; margin: 0 0 4px; }
+  #laporan h2 { font-size: 17px; margin: 26px 0 8px; border-bottom:2px solid #334155; padding-bottom:3px; }
+  #laporan h3 { font-size: 14px; margin: 16px 0 6px; }
+  #laporan p, #laporan li { font-size: 12.5px; }
+  #laporan table { border-collapse: collapse; width: 100%; margin: 8px 0 14px; font-size: 11.5px; }
+  #laporan th, #laporan td { border: 1px solid #94a3b8; padding: 5px 7px; text-align: left; vertical-align: top; }
+  #laporan th { background: #f1f5f9; font-weight: 700; }
+  #laporan .muted { color:#475569; }
+  #laporan .small { font-size: 11px; }
+  #laporan ol.refs li { margin-bottom: 5px; }
+  #laporan .kpi td { font-size: 13px; text-align:center; }
+  #laporan .kpi .big { font-size: 22px; font-weight:700; }
+  #toolbar { max-width: 880px; margin: 0 auto 14px; }
+  @media print { #toolbar, nav, header, .no-print { display: none !important; } #laporan { max-width:100%; } }
+</style>
+
+<div class="container mx-auto px-4 py-8">
+  <div id="toolbar" class="flex items-center gap-2 flex-wrap no-print">
+    <a href="{{ url_for('admin.dashboard') }}" class="text-sm px-4 py-2 rounded-lg border border-slate-200 bg-white hover:bg-slate-50">← Dashboard</a>
+    <button onclick="selectLaporan()" class="text-sm px-4 py-2 rounded-lg bg-indigo-600 text-white font-semibold hover:bg-indigo-700">Pilih semua isi laporan (lalu Ctrl+C → tempel ke Word)</button>
+    <button onclick="window.print()" class="text-sm px-4 py-2 rounded-lg border border-slate-200 bg-white hover:bg-slate-50">Cetak / Simpan PDF</button>
+    <form method="GET" class="flex items-center gap-1 ml-auto">
+      <label class="text-xs text-slate-500">Target jumlah karyawan:</label>
+      <input type="number" name="target" value="{{ coverage.target if coverage else '' }}" placeholder="mis. 120"
+             class="w-24 px-2 py-1.5 text-sm rounded-lg border border-slate-200">
+      <button class="text-sm px-3 py-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50">Terapkan</button>
+    </form>
+  </div>
+
+  <div id="laporan">
+    <h1>Laporan Uji Kelayakan Laptop Karyawan</h1>
+    <p class="muted small">PT MTani · Tim IT · Dihasilkan otomatis {{ generated }} · {{ report.summary.total }} laptop terdata.</p>
+
+    <!-- ====== 1. KONTEKS & TUJUAN ====== -->
+    <h2>1. Konteks & Tujuan</h2>
+    <p>Dokumen ini memuat hasil <strong>uji kelayakan laptop</strong> seluruh karyawan MTani
+    (status tetap, kontrak, magang, hingga lapangan). Data spesifikasi tiap laptop dikumpulkan
+    otomatis oleh program pendata (<em>collector</em>) yang dijalankan langsung di perangkat
+    karyawan, lalu karyawan melengkapi data diri lewat formulir web. Sistem menilai tiap laptop
+    terhadap kebutuhan perannya dan menghasilkan <strong>skor kelayakan</strong> serta
+    <strong>vonis: Layak / Upgrade / Ganti</strong>.</p>
+    <p>Tujuannya membantu tim IT mengambil keputusan berbasis data: laptop mana yang masih layak,
+    mana yang cukup di-<em>upgrade</em> (mis. tambah RAM/SSD), dan mana yang sebaiknya diganti —
+    sekaligus menjadi dasar perencanaan anggaran pengadaan dan prioritasnya.</p>
+
+    <!-- ====== 2. STANDAR & METODOLOGI PENILAIAN ====== -->
+    <h2>2. Standar &amp; Metodologi Penilaian</h2>
+
+    <h3>2.1. Apa yang dinilai</h3>
+    <p>Tiap laptop dinilai pada tiga skor (0–100):</p>
+    <ul>
+      <li><strong>Skor Spek</strong> — kualitas perangkat keras (CPU, RAM, penyimpanan, baterai)
+      terhadap kebutuhan kelompok kerjanya.</li>
+      <li><strong>Skor Beban</strong> — ketahanan terhadap beban kerja nyata: tekanan pemakaian
+      (RAM &amp; CPU terpakai saat dicek) dan kecukupan RAM terhadap peran.</li>
+      <li><strong>Skor Total</strong> — gabungan keduanya, menjadi angka utama vonis.</li>
+    </ul>
+
+    <h3>2.2. Cara perhitungan (rumus)</h3>
+    <table>
+      <tr><th style="width:34%">Komponen</th><th>Rumus / aturan</th></tr>
+      <tr><td>CPU points</td><td>clamp(100 × PassMark ÷ CPU&nbsp;ideal, 0–100)</td></tr>
+      <tr><td>RAM points</td><td>clamp(100 × RAM&nbsp;GB ÷ RAM&nbsp;ideal, 0–100)</td></tr>
+      <tr><td>Storage points</td><td>SSD NVMe 100 · SSD SATA 85 · HDD saja 25 · tak terdeteksi 50 (× faktor kesehatan disk)</td></tr>
+      <tr><td>Battery points</td><td>kesehatan baterai (kapasitas&nbsp;penuh ÷ desain × 100); netral bila tak ada data</td></tr>
+      <tr><td><strong>Skor Spek</strong></td><td>rata-rata <em>berbobot</em> komponen di atas (bobot per profil, lihat §2.3)</td></tr>
+      <tr><td>Tekanan pemakaian</td><td>≤ 60% → 100; 60–100% turun linier ke 0 (rata-rata RAM% &amp; CPU% terpakai)</td></tr>
+      <tr><td>Kecukupan RAM</td><td>clamp(100 × RAM&nbsp;GB ÷ RAM&nbsp;minimum, 0–100)</td></tr>
+      <tr><td><strong>Skor Beban</strong></td><td>0.5 × tekanan + 0.5 × kecukupan RAM (−10 bila sisa penyimpanan OS &lt; 15%)</td></tr>
+      <tr><td><strong>Skor Total</strong></td><td>{{ s.blend_spec }} × Skor&nbsp;Spek + {{ s.blend_load }} × Skor&nbsp;Beban</td></tr>
+      <tr><td><strong>Vonis</strong></td><td>≥ {{ s.status_eligible_min|int }} → <strong>Layak</strong> · {{ s.status_upgrade_min|int }}–{{ (s.status_eligible_min-1)|int }} → <strong>Upgrade</strong> · &lt; {{ s.status_upgrade_min|int }} → <strong>Ganti</strong> (dapat diturunkan oleh aturan paksa: RAM &lt; minimum, belum SSD, atau CPU di bawah batas)</td></tr>
+      <tr><td><strong>Masa pakai (EOL)</strong></td><td>tahun beli + {{ s.base_lifespan_years|int }} tahun (laptop pribadi tidak disusutkan)</td></tr>
+    </table>
+
+    <h3>2.3. Tabel standar kebutuhan per profil</h3>
+    <p class="small muted">10 kelompok kerja dipetakan ke {{ profiles|length }} <strong>profil kebutuhan</strong>;
+    kelompok dengan beban serupa berbagi satu profil. CPU = skor PassMark multi-thread; RAM dalam GB.
+    Bobot tiap baris berjumlah 1.0.</p>
+    <table>
+      <tr>
+        <th>Profil</th><th>Kelompok (anggota)</th>
+        <th>CPU min</th><th>CPU ideal</th><th>RAM min</th><th>RAM ideal</th>
+        <th>Bobot CPU/RAM/Sto/Bat</th>
+      </tr>
+      {% for p in profiles %}
+      <tr>
+        <td><strong>{{ p.label }}</strong></td>
+        <td class="small">{% for m in members.get(p.key, []) %}{{ m.label }}{% if not loop.last %}, {% endif %}{% endfor %}</td>
+        <td>{{ '{:,}'.format(p.cpu_floor).replace(',', '.') }}</td>
+        <td>{{ '{:,}'.format(p.cpu_ideal).replace(',', '.') }}</td>
+        <td>{{ p.ram_min }}</td><td>{{ p.ram_ideal }}</td>
+        <td class="small">{{ p.w_cpu }} / {{ p.w_ram }} / {{ p.w_storage }} / {{ p.w_battery }}</td>
+      </tr>
+      {% endfor %}
+    </table>
+    <p class="small muted">Catatan: GPU tidak masuk perhitungan skor (kebijakan <em>frugal computing</em> —
+    agar peran klerikal tidak terkena penalti yang tidak relevan), namun tetap menjadi standar pengadaan
+    untuk peran kreatif.</p>
+
+    <h3>2.4. Dasar standar (sumber)</h3>
+    <p class="small">Ambang kebutuhan &amp; aturan di atas mengacu pada pedoman arsitektur vendor &amp; standar industri berikut:</p>
+    <ol class="refs small">
+      <li>Microsoft Support — <em>“Choose between the 64-bit or 32-bit version of Office”</em>: dasar kebutuhan RAM 16&nbsp;GB untuk pengolahan dataset besar (mencegah <em>out-of-memory</em> &amp; <em>disk paging</em>).</li>
+      <li>CapCut PC — <em>Desktop System Requirements</em>: dasar ambang RAM/CPU profil Kreatif (<em>rendering</em>/playback resolusi tinggi).</li>
+      <li>Microsoft — <em>Windows 11 Enterprise System Requirements</em>: dasar lantai RAM 8&nbsp;GB untuk produktivitas multi-tugas korporasi (4&nbsp;GB hanya cukup untuk <em>boot</em>).</li>
+      <li>ManageEngine / Nexthink Endpoint Analytics — <em>Digital Employee Experience (DEX) &amp; thermal throttling</em>: dasar ambang beban 60% (di atas itu <em>thermal headroom</em> terkuras, CPU kehilangan <em>turbo</em> → lag).</li>
+      <li>IRS <em>Publication 946</em> (Table B-1, MACRS 5-year property for Information Systems): dasar masa pakai (EOL) 5 tahun untuk aset sistem informasi.</li>
+    </ol>
+
+    <!-- ====== 3. RINGKASAN ARMADA ====== -->
+    <h2>3. Ringkasan Armada</h2>
+    <table class="kpi">
+      <tr><th>Total laptop</th><th>Layak</th><th>Upgrade</th><th>Ganti</th><th>Skor rata-rata</th></tr>
+      <tr>
+        <td class="big">{{ report.summary.total }}</td>
+        <td><span class="big" style="color:#047857">{{ report.summary.per_status.eligible }}</span><br><span class="small muted">{{ report.summary.pct.eligible }}%</span></td>
+        <td><span class="big" style="color:#b45309">{{ report.summary.per_status.upgrade }}</span><br><span class="small muted">{{ report.summary.pct.upgrade }}%</span></td>
+        <td><span class="big" style="color:#b91c1c">{{ report.summary.per_status.replace }}</span><br><span class="small muted">{{ report.summary.pct.replace }}%</span></td>
+        <td class="big">{{ report.summary.avg_score if report.summary.avg_score is not none else '—' }}</td>
+      </tr>
+    </table>
+
+    <!-- ====== 4. RINCIAN PER KELOMPOK ====== -->
+    <h2>4. Rincian per Kelompok Kerja</h2>
+    <table>
+      <tr><th>Kelompok</th><th>Unit</th><th>Layak</th><th>Upgrade</th><th>Ganti</th><th>Skor rata²</th><th>RAM &lt; min</th><th>CPU &lt; min</th></tr>
+      {% for g in report.per_group %}
+      <tr>
+        <td>{{ g.label }}</td><td>{{ g.count }}</td>
+        <td>{{ g.eligible }}</td><td>{{ g.upgrade }}</td><td>{{ g.replace }}</td>
+        <td>{{ g.avg_score if g.avg_score is not none else '—' }}</td>
+        <td>{{ g.ram_low or '' }}</td><td>{{ g.cpu_low or '' }}</td>
+      </tr>
+      {% endfor %}
+      {% if not report.per_group %}<tr><td colspan="8" class="muted">Belum ada data.</td></tr>{% endif %}
+    </table>
+
+    <!-- ====== 5. DAFTAR PRIORITAS TINDAKAN ====== -->
+    <h2>5. Daftar Karyawan Prioritas (Upgrade / Ganti)</h2>
+    <p class="small muted">Diurut dari yang paling mendesak (Ganti dulu, lalu skor terendah).</p>
+    <table>
+      <tr><th>No</th><th>Pemegang</th><th>Kelompok</th><th>Laptop</th><th>Skor</th><th>Vonis</th><th>Alasan / tindakan</th></tr>
+      {% for p in report.priority %}
+      <tr>
+        <td>{{ loop.index }}</td>
+        <td>{{ p.holder }}</td>
+        <td>{{ p.group }}</td>
+        <td>{{ p.laptop }}<br><span class="small muted">{{ p.serial }}</span></td>
+        <td>{{ p.score if p.score is not none else '—' }}</td>
+        <td>{{ vonis(p.status) }}</td>
+        <td class="small">{% for r in p.reasons %}• {{ r }}<br>{% endfor %}</td>
+      </tr>
+      {% endfor %}
+      {% if not report.priority %}<tr><td colspan="7" class="muted">Tidak ada laptop berstatus Upgrade/Ganti — seluruh armada Layak.</td></tr>{% endif %}
+    </table>
+
+    <!-- ====== 6. RENCANA PENGADAAN & EOL ====== -->
+    <h2>6. Rencana Pengadaan &amp; Masa Pakai (EOL)</h2>
+    <p class="small muted">Estimasi tahun pensiun = tahun beli + {{ s.base_lifespan_years|int }}. Tahun ini: {{ current_year }}.</p>
+    <table>
+      <tr><th>Tahun pensiun (EOL)</th><th>Jumlah unit</th><th>Keterangan</th></tr>
+      {% for year, n in report.eol_by_year %}
+      <tr>
+        <td>{{ year }}</td><td>{{ n }}</td>
+        <td>{% if year <= current_year %}<span style="color:#b91c1c;font-weight:600">Sudah lewat — prioritas ganti</span>{% elif year == current_year + 1 %}<span style="color:#b45309">Mendekati — siapkan anggaran</span>{% else %}Masih dalam masa pakai{% endif %}</td>
+      </tr>
+      {% endfor %}
+      {% if not report.eol_by_year %}<tr><td colspan="3" class="muted">Belum ada data tahun beli.</td></tr>{% endif %}
+      {% if report.no_eol %}<tr><td class="muted">Tanpa data</td><td>{{ report.no_eol }}</td><td class="muted">Tahun beli belum diisi / laptop pribadi (EOL tak dihitung)</td></tr>{% endif %}
+    </table>
+
+    <!-- ====== LAMPIRAN A ====== -->
+    <h2>Lampiran A — Data Seluruh Karyawan &amp; Laptop Terdata</h2>
+    <p class="small muted">{{ employees|length }} karyawan terdata (satu baris = karyawan + laptop terbarunya).</p>
+    <table>
+      <tr><th>No</th><th>Nama</th><th>Perusahaan</th><th>Status</th><th>Kelompok</th><th>Laptop</th><th>RAM</th><th>Skor</th><th>Vonis</th><th>Beli</th><th>EOL</th></tr>
+      {% for e in employees %}
+      <tr>
+        <td>{{ loop.index }}</td>
+        <td>{{ e.emp_full_name or e.holder_name or '-' }}</td>
+        <td>{{ e.emp_company or e.holder_company or '-' }}</td>
+        <td class="small">{{ emp_status_label.get(e.emp_status, e.emp_status or '-') }}</td>
+        <td class="small">{{ group_label(e) }}</td>
+        <td class="small">{{ (e.device_brand or '-') ~ ' ' ~ (e.device_model or '') }}<br><span class="muted">{{ e.serial_number or e.device_serial or '-' }}</span></td>
+        <td>{{ e.ram_gb or '—' }}</td>
+        <td>{{ e.score_total if e.score_total is not none else '—' }}</td>
+        <td>{{ vonis(e.status) }}</td>
+        <td>{{ e.purchase_year or '—' }}</td>
+        <td>{{ e.eol_year or '—' }}</td>
+      </tr>
+      {% endfor %}
+      {% if not employees %}<tr><td colspan="11" class="muted">Belum ada karyawan terdata.</td></tr>{% endif %}
+    </table>
+
+    <!-- ====== LAMPIRAN B ====== -->
+    <h2>Lampiran B — Cakupan Pendataan (Belum Terdata)</h2>
+    {% if coverage %}
+    <table>
+      <tr><th>Target jumlah karyawan</th><th>Sudah terdata</th><th>Belum terdata</th><th>Cakupan</th></tr>
+      <tr>
+        <td>{{ coverage.target }}</td>
+        <td>{{ coverage.terdata }}</td>
+        <td><strong style="color:#b91c1c">{{ coverage.belum }}</strong></td>
+        <td>{{ ((coverage.terdata / coverage.target) * 100)|round|int }}%</td>
+      </tr>
+    </table>
+    <p class="small muted">Sistem hanya menyimpan karyawan yang sudah menjalankan pendata, sehingga
+    <strong>nama karyawan yang belum terdata belum dapat ditampilkan</strong>. Untuk memunculkan daftar
+    namanya, perlu diimpor daftar (roster) karyawan resmi ke sistem.</p>
+    {% else %}
+    <p class="small muted">Masukkan <strong>target jumlah karyawan</strong> di kotak atas lalu klik
+    “Terapkan” untuk menghitung berapa karyawan yang <strong>belum mengisi pendataan</strong>.
+    Catatan: nama karyawan yang belum terdata belum dapat ditampilkan karena sistem belum memuat
+    daftar (roster) karyawan resmi — baru memuat yang sudah menjalankan pendata.</p>
+    {% endif %}
+
+    <p class="small muted" style="margin-top:24px;border-top:1px solid #cbd5e1;padding-top:8px">
+      — Laporan ini dihasilkan otomatis oleh sistem <em>online-device-inventory</em> berdasarkan data submission terbaru per laptop. —
+    </p>
+  </div>
+</div>
+
+<script>
+  function selectLaporan() {
+    var el = document.getElementById('laporan');
+    var range = document.createRange();
+    range.selectNodeContents(el);
+    var sel = window.getSelection();
+    sel.removeAllRanges();
+    sel.addRange(range);
+  }
+</script>
+{% endblock %}

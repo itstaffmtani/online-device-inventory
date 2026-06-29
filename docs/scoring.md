@@ -2,15 +2,18 @@
 
 Dokumen ini adalah **sumber kebenaran untuk manusia** (rumus & makna).
 
-> ✅ **REVISI "STANDAR FRUGAL" SUDAH DITERAPKAN (2026-06).** Angka di dokumen ini
-> sudah final & mencerminkan kode. Ringkasan keputusan yang diterapkan:
-> (1) profil **Standar Frugal** (CPU ideal turun, mis. admin 18.000→12.000;
-> **Lapangan = Administrasi**) + **bobot per kelompok**; (2) ambang **Ganti**
-> menyempit (`status_upgrade_min` 45→**35**); (3) tekanan pemakaian → **linier**
-> (buang piecewise); (4) EOL → **rata 5 tahun** (buang ±1); (5) penalti OS storage
-> berbasis **rasio < 15%** (−10 Skor Beban); (6) logika **kepemilikan personal** &
-> **proteksi rotasi Manajemen**. Data CPU dibangun ulang dari PassMark resmi
-> (`data/passmark_single_cpu_intel_amd.csv`). Latar/keputusan lengkap diarsipkan di
+> ✅ **REKALIBRASI 2026-06 SUDAH DITERAPKAN** (revisi atas "Standar Frugal"
+> sebelumnya). Angka di dokumen ini sudah final & mencerminkan kode. Ringkasan
+> perubahan rekalibrasi ini: (1) **ambang CPU diturunkan menyeluruh** agar realistis
+> terhadap armada nyata (mis. admin cpu_ideal 12.000→**8.000**; IT 22.000→**16.000**);
+> (2) **Lapangan kembali punya profil khas** (BUKAN lagi = Administrasi): spek paling
+> ringan (cpu 3.500/7.000, ram 4/8) dengan **bobot baterai dominan 0.40** sesuai
+> pemakaian mobile; (3) `ram_ideal` operasional ringan (admin/marketing/other) turun
+> ke **8** (hanya HR yang tetap 16); (4) penyetelan ulang **bobot komponen** beberapa
+> kelompok. Tetap dipertahankan dari Standar Frugal: ambang **Ganti** menyempit
+> (`status_upgrade_min` **35**), tekanan pemakaian **linier**, EOL **rata 5 tahun**,
+> penalti OS storage rasio **< 15%**, logika **kepemilikan personal** & **proteksi
+> rotasi Manajemen**. Latar Standar Frugal sebelumnya diarsipkan di
 > [scoring-revisi-2026-06.md](scoring-revisi-2026-06.md).
 
 > **PENTING (perubahan):** angka parameter (profil per kelompok, bobot komponen,
@@ -42,25 +45,34 @@ Untuk tiap laptop (submission terbaru):
 Angka PassMark di bawah adalah **anchor perkiraan** dari CPU acuan PDF —
 **verifikasi & seed dari cpubenchmark.net** saat mengisi tabel `cpu_benchmarks`.
 
-**Standar Frugal (2026-06).** Target operasional umum = setara Intel Core i3 Gen
-12 / Ryzen 3 (PassMark ≈ 12.000); divisi teknis berat (IT/Keuangan/Data) ≥ 16.000.
+**Rekalibrasi 2026-06.** Ambang CPU diturunkan menyeluruh agar realistis terhadap
+armada nyata: operasional umum cpu_ideal ≈ **8.000**; divisi teknis berat
+(IT/Keuangan/Data/Design) **11.000–16.000**; Lapangan paling ringan (**7.000**).
 
-| Kelompok | CPU floor | CPU ideal | RAM min | RAM ideal |
-|---|---:|---:|---:|---:|
-| `field` | 6.000 | 12.000 | 8 | 16 |
-| `admin` | 6.000 | 12.000 | 8 | 16 |
-| `marketing` | 6.000 | 12.000 | 8 | 16 |
-| `hr` | 6.000 | 12.000 | 8 | 16 |
-| `management` | 8.000 | 14.000 | 8 | 16 |
-| `finance` | 10.000 | 16.000 | 8 | 16 |
-| `data_processing` | 10.000 | 16.000 | 8 | 16 |
-| `design` | 10.000 | 16.000 | 8 | 16 |
-| `it` | 14.000 | 22.000 | 16 | 32 |
+**Model PROFIL BERSAMA.** Angka kebutuhan tidak lagi disimpan per-kelompok, tapi di
+**profil** (tabel `scoring_profiles`). Tiap kelompok kerja hanya **menunjuk** ke satu
+profil (`work_groups.profile_key`). Banyak kelompok boleh berbagi profil → edit profil
+**sekali**, semua anggotanya ikut. Label kelompok tetap utuh untuk laporan.
 
-> Catatan: **Lapangan = Administrasi** (profil & bobot identik). `finance` &
-> `data_processing` dasarnya sama (Excel/data berat), tetap dipisah agar laporan
-> bisa membedakan. Hanya `it` yang menuntut RAM 16/32; sisanya 8/16 (efisiensi
-> budget). `other` memakai profil `admin`. Bobot komponen per kelompok di §2e.
+| Profil | Anggota (kelompok) | CPU floor | CPU ideal | RAM min | RAM ideal |
+|---|---|---:|---:|---:|---:|
+| `kantor` (Kantor Umum) | admin, hr, other | 4.000 | 8.000 | 8 | 8 |
+| `lapangan` (Lapangan/mobile) | field, rpo, mandor | 3.500 | 7.000 | 8 | 8 |
+| `manajemen` | management | 5.000 | 10.000 | 8 | 16 |
+| `keuangan` (Keuangan & Data) | finance, data_processing | 5.500 | 11.000 | 8 | 16 |
+| `kreatif` | design | 7.000 | 14.000 | 8 | 16 |
+| `workstation` (IT) | it | 8.000 | 16.000 | 16 | 32 |
+
+> Catatan perapian (2026-06): **HR ikut profil Kantor Umum** (RAM ideal 16→**8** — HR
+> klerikal, sekelas Administrasi) dan **Lapangan RAM min 4→8** (selaras lantai
+> produktivitas korporat). **Lapangan** tetap profil khas: spek paling ringan
+> (cpu 3.500/7.000) dengan **bobot baterai dominan** (§2e), sesuai pemakaian mobile;
+> anggotanya `field`, `rpo`, `mandor`. **Keuangan & Pengolahan Data kini berbagi satu
+> profil `keuangan`** (beban Excel banyak baris = RAM-bound, bukan Power Query → CPU
+> modest, RAM dominan); label kedua departemen tetap **dipisah** agar laporan bisa
+> membedakan. Hanya `workstation` (IT) yang menuntut RAM 16/32. Admin dapat
+> menambah/mengubah profil & memindah kelompok ke profil lain via **`/admin/skoring`**
+> tanpa sentuh kode.
 
 ---
 
@@ -108,17 +120,17 @@ battery_points = clamp(round(health), 0, 100)
 - Bila tak ada baterai (PC desktop) atau data kosong → **netral**, komponen ini
   dikeluarkan dari rata-rata berbobot (bobotnya dibagikan ke komponen lain).
 
-### 2e. Bobot komponen (per kelompok, Standar Frugal 2026-06)
+### 2e. Bobot komponen (per kelompok, Rekalibrasi 2026-06)
 Tiap baris berjumlah 1.0.
 
-| Kelompok | W_CPU | W_RAM | W_Storage | W_Battery |
+| Profil (anggota) | W_CPU | W_RAM | W_Storage | W_Battery |
 |---|---:|---:|---:|---:|
-| `field` `admin` `marketing` `hr` `other` | 0.30 | 0.30 | 0.20 | 0.20 |
-| `management` | 0.30 | 0.25 | 0.20 | 0.25 |
-| `finance` | 0.30 | 0.40 | 0.10 | 0.20 |
-| `data_processing` | 0.30 | 0.40 | 0.15 | 0.15 |
-| `design` | 0.35 | 0.35 | 0.15 | 0.15 |
-| `it` | 0.40 | 0.35 | 0.15 | 0.10 |
+| `lapangan` — field, rpo, mandor (baterai dominan) | 0.20 | 0.20 | 0.20 | 0.40 |
+| `kantor` — admin, hr, other | 0.25 | 0.30 | 0.25 | 0.20 |
+| `manajemen` — management | 0.30 | 0.25 | 0.20 | 0.25 |
+| `keuangan` — finance, data_processing | 0.25 | 0.40 | 0.15 | 0.20 |
+| `kreatif` — design | 0.35 | 0.35 | 0.15 | 0.15 |
+| `workstation` — it | 0.40 | 0.35 | 0.15 | 0.10 |
 
 ```
 Skor Spek = Σ(poin_komponen * bobot) / Σ(bobot komponen yang dipakai)
@@ -235,25 +247,25 @@ eol_year = purchase_year + 5
 
 ---
 
-## 7. Contoh perhitungan (ilustrasi — Standar Frugal 2026-06)
+## 7. Contoh perhitungan (ilustrasi — Rekalibrasi 2026-06)
 **Laptop admin, Ryzen 5 7530U (PassMark ~16.000), RAM 8GB, SSD NVMe, baterai
 health 70%, RAM usage 75%, beli 2022.**
-Profil `admin` (frugal): cpu_ideal 12.000, ram_ideal 16, ram_min 8.
-Bobot `admin`: CPU .30 · RAM .30 · Storage .20 · Battery .20.
+Profil `admin`: cpu_ideal 8.000, ram_ideal 8, ram_min 8.
+Bobot `admin`: CPU .25 · RAM .30 · Storage .25 · Battery .20.
 
-- CPU points = clamp(100*16000/12000) = clamp(133) = **100**
-- RAM points = 100*8/16 = **50**
+- CPU points = clamp(100*16000/8000) = clamp(200) = **100**
+- RAM points = 100*8/8 = **100**
 - Storage = **100** (NVMe)
 - Battery = **70**
-- Skor Spek = 100*.30 + 50*.30 + 100*.20 + 70*.20 = 30+15+20+14 = **79**
+- Skor Spek = 100*.25 + 100*.30 + 100*.25 + 70*.20 = 25+30+25+14 = **94**
 - Tekanan (linier, RAM 75%) = 100*(100-75)/40 = **62.5**
 - RAM adequacy = 100*8/8 = **100**
 - Skor Beban = round(.5*62.5 + .5*100) = **81**
-- Skor Total = round(.7*79 + .3*81) = round(55.3+24.3) = **80 → Layak**
+- Skor Total = round(.7*94 + .3*81) = round(65.8+24.3) = **90 → Layak**
 - Override: ram_gb(8) == ram_min(8) → tidak kena. SSD ada → aman.
 - EOL: rata 5 tahun → 2022+5 = **2027**.
 
-Hasil: **Skor 80 · Layak · pensiun ~2027**, catatan baterai 70% (masih wajar).
+Hasil: **Skor 90 · Layak · pensiun ~2027**, catatan baterai 70% (masih wajar).
 
 ---
 
@@ -346,10 +358,19 @@ tetapi cocok untuk Administrasi"*.
 
 ---
 
-## 11. Catatan kelompok kerja (data-driven)
-Kelompok disimpan di tabel `work_groups` (seed di `scoring_config.py`): 6 kelompok
-asli + **marketing**, **design**, **hr** (Standar Frugal 2026-06: kini **aktif**
-dengan profil pasti, bukan lagi placeholder) + `other`. Admin dapat
-menambah/menonaktifkan kelompok & mengubah profil lewat `/admin/skoring`.
-Submission baru otomatis pakai parameter terbaru; data lama diperbarui via tombol
-**"Hitung ulang semua"** (atau skrip `migrate_frugal_2026_06.py` untuk seed paksa).
+## 11. Catatan kelompok kerja & profil (data-driven)
+Dua tabel terpisah (seed di `scoring_config.py`):
+- **`scoring_profiles`** — angka kebutuhan (CPU/RAM/bobot). Inilah yang diedit admin;
+  satu edit memengaruhi semua kelompok anggota. Default: 6 profil (`kantor`,
+  `lapangan`, `manajemen`, `keuangan` [Keuangan & Data], `kreatif`, `workstation`).
+- **`work_groups`** — 1 baris per kelompok kerja (label + `profile_key` + urutan +
+  aktif). KEY kelompok inilah yang disimpan di `submissions.work_group`.
+
+Admin dapat menambah/menonaktifkan kelompok, menambah profil, dan **memindah kelompok
+ke profil lain** lewat `/admin/skoring`. Submission baru otomatis pakai parameter
+terbaru; data lama diperbarui via tombol **"Hitung ulang semua"**.
+
+> **Penting (rename kelompok):** mengubah **label** kelompok aman kapan saja. Mengubah
+> **key** kelompok (mis. `marketing` → `rpo`) butuh migrasi data karena
+> `submissions.work_group` menyimpan key tsb — jalankan `UPDATE submissions SET
+> work_group=<key_baru> WHERE work_group=<key_lama>` lalu "Hitung ulang semua".

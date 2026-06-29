@@ -252,6 +252,148 @@ def _build_pengadaan(rows, current_year):
     }
 
 
+def _num_or_none(v):
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return None
+
+
+def _build_report(rows, current_year):
+    """Agregat siap-laporan dari latest_per_device(): ringkasan armada, rincian per
+    kelompok, daftar prioritas tindakan, dan rencana EOL/pengadaan."""
+    profiles = scoring_config.get_profiles()
+    labels = scoring_config.get_labels()
+
+    # 1) Ringkasan armada.
+    per_status = {"eligible": 0, "upgrade": 0, "replace": 0}
+    score_sum = score_n = 0
+    for r in rows:
+        st = r.get("status")
+        if st in per_status:
+            per_status[st] += 1
+        sc = r.get("score_total")
+        if sc is not None:
+            score_sum += sc; score_n += 1
+    total = len(rows)
+    summary = {
+        "total": total, "per_status": per_status,
+        "pct": {k: (round(100 * v / total) if total else 0) for k, v in per_status.items()},
+        "avg_score": round(score_sum / score_n) if score_n else None,
+    }
+
+    # 2) Rincian per kelompok kerja.
+    groups = {}
+    for r in rows:
+        key = r.get("work_group") or "-"
+        g = groups.setdefault(key, {
+            "key": key, "label": labels.get(key, key) if key != "-" else "-",
+            "count": 0, "eligible": 0, "upgrade": 0, "replace": 0,
+            "score_sum": 0, "score_n": 0, "ram_low": 0, "cpu_low": 0})
+        g["count"] += 1
+        st = r.get("status")
+        if st in ("eligible", "upgrade", "replace"):
+            g[st] += 1
+        sc = r.get("score_total")
+        if sc is not None:
+            g["score_sum"] += sc; g["score_n"] += 1
+        prof = profiles.get(key)
+        if prof:
+            ram = _num_or_none(r.get("ram_gb"))
+            if ram is not None and ram < prof["ram_min"]:
+                g["ram_low"] += 1
+            pm = _num_or_none(r.get("cpu_passmark"))
+            if pm is not None and pm > 0 and pm < prof["cpu_floor"]:
+                g["cpu_low"] += 1
+    per_group = []
+    for g in groups.values():
+        g["avg_score"] = round(g["score_sum"] / g["score_n"]) if g["score_n"] else None
+        per_group.append(g)
+    per_group.sort(key=lambda g: (-g["replace"], -g["upgrade"], g["label"]))
+
+    # 3) Daftar prioritas tindakan (Upgrade/Ganti).
+    priority = []
+    for r in rows:
+        st = r.get("status")
+        if st not in ("upgrade", "replace"):
+            continue
+        priority.append({
+            "holder": r.get("holder_name") or "-",
+            "group": labels.get(r.get("work_group"), r.get("work_group") or "-"),
+            "laptop": ((r.get("device_brand") or "-") + " "
+                       + (r.get("device_model") or "")).strip(),
+            "serial": r.get("serial_number") or r.get("device_serial") or "-",
+            "score": r.get("score_total"), "status": st,
+            "reasons": _parse_reasons(r.get("status_reasons")),
+            "device_id": r.get("device_id"),
+        })
+    priority.sort(key=lambda p: (_STATUS_RANK.get(p["status"], 9),
+                                 p["score"] if p["score"] is not None else 999))
+
+    # 4) Rencana pengadaan & EOL.
+    eol_rows = []
+    eol_by_year = {}
+    for r in rows:
+        eol = r.get("eol_year")
+        if eol is None:
+            continue
+        eol_by_year[eol] = eol_by_year.get(eol, 0) + 1
+        eol_rows.append({
+            "holder": r.get("holder_name") or "-",
+            "group": labels.get(r.get("work_group"), r.get("work_group") or "-"),
+            "laptop": ((r.get("device_brand") or "-") + " "
+                       + (r.get("device_model") or "")).strip(),
+            "purchase_year": r.get("purchase_year"), "eol_year": eol,
+            "overdue": eol <= current_year, "status": r.get("status"),
+        })
+    eol_rows.sort(key=lambda e: (e["eol_year"] or 9999, e["holder"]))
+    no_eol = sum(1 for r in rows if r.get("eol_year") is None)
+
+    return {
+        "summary": summary, "per_group": per_group, "priority": priority,
+        "eol_rows": eol_rows, "eol_by_year": sorted(eol_by_year.items()),
+        "no_eol": no_eol,
+    }
+
+
+@admin_bp.route("/report")
+@login_required
+def report():
+    """Halaman laporan ringkas (copy-paste ke Word): ringkasan armada, per kelompok,
+    prioritas tindakan, rencana EOL, metodologi perhitungan, & sumber."""
+    rows = db.latest_per_device()
+    current_year = datetime.now().year
+    report = _build_report(rows, current_year)
+
+    # Lampiran: satu baris per karyawan terdata (+ laptop terbarunya).
+    try:
+        employees = db.latest_per_employee()
+    except (AttributeError, Exception):
+        employees = []
+    for e in employees:
+        e["_reasons"] = _parse_reasons(e.get("status_reasons"))
+
+    # "Belum terdata" tak bisa dinamai (tak ada roster master) — tampilkan selisih
+    # terhadap target headcount bila admin memberikannya via ?target=NN.
+    target = _to_int(request.args.get("target"))
+    coverage = None
+    if target and target > 0:
+        coverage = {"target": target, "terdata": len(employees),
+                    "belum": max(0, target - len(employees))}
+
+    return render_template(
+        "admin/report.html",
+        report=report, employees=employees, coverage=coverage,
+        current_year=current_year,
+        profiles=scoring_config.all_profiles(),
+        members=scoring_config.profile_members(),
+        settings=scoring_config.get_settings(),
+        status_label=STATUS_LABEL, group_label=group_label,
+        emp_status_label={"active": "Aktif", "resigned": "Resign"},
+        generated=datetime.now().strftime("%d-%m-%Y %H:%M"),
+    )
+
+
 @admin_bp.route("/laptop/<int:device_id>")
 @login_required
 def laptop_detail(device_id):
@@ -498,28 +640,30 @@ def recalc_all():
 def scoring_page():
     return render_template(
         "admin/scoring.html",
+        profiles=scoring_config.all_profiles(),
         groups=scoring_config.all_groups(active_only=False),
+        members=scoring_config.profile_members(),
         settings=scoring_config.get_settings(),
     )
 
 
-@admin_bp.route("/skoring/grup/<key>", methods=["POST"])
+@admin_bp.route("/skoring/profil/<key>", methods=["POST"])
 @login_required
-def scoring_update_group(key):
+def scoring_update_profile(key):
+    """Edit angka 1 profil — memengaruhi SEMUA kelompok yang menunjuk ke profil ini."""
     fields = {"label": request.form.get("label")}
     for col in ("cpu_floor", "cpu_ideal", "ram_min", "ram_ideal", "sort_order"):
         fields[col] = _to_int(request.form.get(col))
     for col in ("w_cpu", "w_ram", "w_storage", "w_battery"):
         fields[col] = _to_float(request.form.get(col))
-    fields["is_active"] = request.form.get("is_active") == "on"
-    scoring_config.update_group(key, fields)
-    flash(f"Kelompok '{key}' diperbarui. Klik 'Hitung ulang semua' agar skor ikut berubah.", "ok")
+    scoring_config.update_profile(key, fields)
+    flash(f"Profil '{key}' diperbarui. Klik 'Hitung ulang semua' agar skor ikut berubah.", "ok")
     return redirect(url_for("admin.scoring_page"))
 
 
-@admin_bp.route("/skoring/grup", methods=["POST"])
+@admin_bp.route("/skoring/profil", methods=["POST"])
 @login_required
-def scoring_create_group():
+def scoring_create_profile():
     profile = {}
     for col in ("cpu_floor", "cpu_ideal", "ram_min", "ram_ideal", "sort_order"):
         v = _to_int(request.form.get(col))
@@ -529,8 +673,32 @@ def scoring_create_group():
         v = _to_float(request.form.get(col))
         if v is not None:
             profile[col] = v
-    ok, msg = scoring_config.create_group(
+    ok, msg = scoring_config.create_profile(
         request.form.get("key"), request.form.get("label"), profile)
+    flash(("Profil baru ditambahkan." if ok else msg), "ok" if ok else "error")
+    return redirect(url_for("admin.scoring_page"))
+
+
+@admin_bp.route("/skoring/grup/<key>", methods=["POST"])
+@login_required
+def scoring_update_group(key):
+    fields = {
+        "label": request.form.get("label"),
+        "profile_key": request.form.get("profile_key"),
+        "sort_order": _to_int(request.form.get("sort_order")),
+        "is_active": request.form.get("is_active") == "on",
+    }
+    scoring_config.update_group(key, fields)
+    flash(f"Kelompok '{key}' diperbarui.", "ok")
+    return redirect(url_for("admin.scoring_page"))
+
+
+@admin_bp.route("/skoring/grup", methods=["POST"])
+@login_required
+def scoring_create_group():
+    ok, msg = scoring_config.create_group(
+        request.form.get("key"), request.form.get("label"),
+        request.form.get("profile_key"), _to_int(request.form.get("sort_order")))
     flash(("Kelompok baru ditambahkan." if ok else msg), "ok" if ok else "error")
     return redirect(url_for("admin.scoring_page"))
 

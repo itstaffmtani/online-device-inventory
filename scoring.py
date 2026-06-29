@@ -937,15 +937,15 @@ if __name__ == "__main__":
         "ram_usage_pct": 75,
         "purchase_year": 2022,
     }
-    # Profil admin frugal: cpu_ideal 12.000, ram_ideal 16, ram_min 8,
-    # bobot .30/.30/.20/.20. CPU 100 · RAM 50 · Sto 100 · Bat 70 -> Spek 79.
+    # Profil admin (rekalibrasi): cpu_ideal 8.000, ram_ideal 8, ram_min 8,
+    # bobot .25/.30/.25/.20. CPU 100 · RAM 100 · Sto 100 · Bat 70 -> Spek 94.
     # Tekanan linier RAM 75% = 62.5; adequacy 100 -> Beban 81.
-    # Total round(.7*79 + .3*81) = 80 -> Layak. EOL rata 5 th -> 2027.
+    # Total round(.7*94 + .3*81) = 90 -> Layak. EOL rata 5 th -> 2027.
     result = score_submission(example, current_year=2026)
     print("Hasil contoh §7:", result)
-    assert result["score_spec"] == 79, result["score_spec"]
+    assert result["score_spec"] == 94, result["score_spec"]
     assert result["score_load"] == 81, result["score_load"]
-    assert result["score_total"] == 80, result["score_total"]
+    assert result["score_total"] == 90, result["score_total"]
     assert result["status"] == "eligible", result["status"]
     assert result["eol_year"] == 2027, result["eol_year"]
     print("OK — semua angka cocok dengan contoh §7 scoring.md.")
@@ -970,7 +970,7 @@ if __name__ == "__main__":
     base = dict(example)
     base["disk_health_pct"] = None
     r_none = score_submission(base, current_year=2026)
-    assert r_none["score_spec"] == 79, r_none["score_spec"]
+    assert r_none["score_spec"] == 94, r_none["score_spec"]
 
     # D1 — disk_health rendah: faktor mengali storage + reason perawatan muncul,
     # tetapi status tidak dipaksa ke replace (tetap flag).
@@ -978,7 +978,7 @@ if __name__ == "__main__":
     low_disk["disk_health_pct"] = 30
     r_disk = score_submission(low_disk, current_year=2026)
     assert any("Kesehatan disk" in r for r in r_disk["status_reasons"]), r_disk
-    assert r_disk["score_spec"] < 79, r_disk["score_spec"]  # storage 100->50 turun
+    assert r_disk["score_spec"] < 94, r_disk["score_spec"]  # storage 100->50 turun
     print("OK — D1 kesehatan disk: netral bila None, flag & turunkan storage bila rendah.")
 
     # D2 — Windows 10 EOL: os_supported False + reason.
@@ -1002,8 +1002,10 @@ if __name__ == "__main__":
     print("OK — D3 kesiapan Windows 11: reason muncul, status tidak dipaksa.")
 
     # D4 — komponen insight baru hadir + headroom RAM actionable.
+    # Pakai 'finance' (ram_ideal 16) agar RAM 8GB < ideal -> rekomendasi tambah RAM
+    # tetap teruji (kantor umum/HR kini ram_ideal 8, jadi 8GB sudah ideal).
     ins = build_insights({
-        "work_group": "admin", "status": "eligible",
+        "work_group": "finance", "status": "eligible",
         "cpu_passmark": 16000, "ram_gb": 8,
         "ssd_type": "NVMe", "ssd_gb": 512,
         "disk_health_pct": 95, "disk_health_raw": "Healthy",
