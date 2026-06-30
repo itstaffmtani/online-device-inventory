@@ -119,6 +119,23 @@ Skrip **idempoten** (aman diulang) & **hanya menyentuh tabel konfigurasi**
 (`work_groups`/`scoring_profiles`) — `submissions`/`employees`/`devices` tidak
 disentuh. Selesai → `/admin/skoring` → "Hitung ulang semua".
 
+### Rilis 2026-06b — skor CPU akurat, export XLSX berformula, bulk edit
+**Murni kode — tanpa migrasi skema/data, tanpa dependency baru.** Jalur rutin saja:
+```bash
+cd /var/www/laptop-inventory
+git pull
+./venv/bin/pip install -r requirements.txt          # tak ada dep baru; aman
+sudo cp data/inventory.db data/inventory.db.bak
+sudo systemctl restart laptop-inventory
+```
+Lalu lewat browser: `/admin/skoring` → **"Hitung ulang semua"** — **wajib**, karena di
+sinilah perbaikan pencocokan PassMark CPU menurunkan ulang skor lama yang sempat
+menggelembung (nama CPU generik dulu tercocok ke varian terkuat). Isi rilis:
+- Pencocokan PassMark diperketat; nama tanpa nomor model -> diperkirakan dari thread.
+- Export XLSX jadi 4 sheet (Master·Perhitungan berformula·Ringkasan·Per Karyawan).
+- Bulk edit penempatan dari dashboard (tab Laptop & Karyawan).
+- Panah "Detail ->" tak lagi turun ke baris bawah.
+
 ## Troubleshooting
 - **502 Bad Gateway** → gunicorn mati: `journalctl -u laptop-inventory -n 50 --no-pager`.
 - **Link/aset salah arah (ke root, bukan sub-path)** → pastikan nginx mengirim
