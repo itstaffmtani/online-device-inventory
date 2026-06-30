@@ -83,7 +83,7 @@
                 <div class="font-semibold text-slate-800">{{ latest.device_brand or '-' }} {{ latest.device_model or '' }}</div>
                 <div class="text-xs text-slate-400 font-mono">SN: {{ latest.device_serial or '—' }}</div>
             </div>
-            <a href="{{ url_for('admin.laptop_detail', device_id=latest.device_id) }}" class="text-indigo-600 hover:underline text-xs font-medium no-print">Lihat detail laptop →</a>
+            <a href="{{ url_for('admin.laptop_detail', device_id=latest.device_id) }}" class="text-indigo-600 hover:underline text-xs font-medium whitespace-nowrap no-print">Lihat detail laptop →</a>
         </div>
     </div>
     {% endif %}

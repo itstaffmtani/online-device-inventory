@@ -825,6 +825,32 @@ def employee_with_history(employee_id):
     }
 
 
+_EMPLOYEE_EDIT_COLUMNS = (
+    "full_name", "employee_code", "company", "current_position",
+    "current_work_group", "status", "notes",
+)
+
+
+def update_employee(employee_id, data):
+    """Perbarui kolom karyawan yang dikenal (dipakai bulk edit penempatan admin).
+
+    Hanya kolom dalam _EMPLOYEE_EDIT_COLUMNS yang diproses; kolom yang tidak ada di
+    `data` tak diubah. Mengembalikan jumlah baris tersentuh (0/1).
+    """
+    db = get_db()
+    cols = [c for c in _EMPLOYEE_EDIT_COLUMNS if c in data]
+    if not cols:
+        return 0
+    assignments = ", ".join(f"{c} = ?" for c in cols)
+    params = [data[c] for c in cols]
+    params.append(employee_id)
+    cur = db.execute(
+        f"UPDATE employees SET {assignments} WHERE id = ?", params
+    )
+    db.commit()
+    return cur.rowcount
+
+
 # ---------------------------------------------------------------------------
 # UTIL
 # ---------------------------------------------------------------------------

@@ -6,7 +6,7 @@
 #   GET  /admin/karyawan/<employee_id>-> detail + riwayat 1 karyawan
 #   GET  /admin/laptop/<id>/export.pdf    -> PDF laporan 1 laptop
 #   GET  /admin/karyawan/<id>/export.pdf  -> PDF laporan 1 karyawan
-#   GET  /admin/export.xlsx           -> export terbaru (sheet Laptop + Per Karyawan)
+#   GET  /admin/export.xlsx           -> export 4 sheet (Master·Perhitungan·Ringkasan·Per Karyawan)
 #   GET/POST /admin/login             -> login 1 password bersama (ADMIN_PASSWORD)
 #   GET  /admin/logout                -> keluar
 #
@@ -40,12 +40,6 @@ def group_label(row):
         return row["work_group_other"].strip()
     return wg_labels().get(wg, wg or "-")
 STATUS_LABEL = {"eligible": "Layak", "upgrade": "Upgrade", "replace": "Ganti"}
-LAPTOP_STATUS_LABEL = {"office_inventory": "Inventaris Kantor", "personal": "Milik Pribadi"}
-PHYSICAL_CONDITION_LABEL = {"good": "Baik", "fair": "Cukup", "poor": "Kurang"}
-SOURCE_LABEL = {
-    "windows_script": "Script Windows", "mac_script": "Script Mac",
-    "linux_script": "Script Linux", "manual": "Manual",
-}
 _STATUS_RANK = {"replace": 0, "upgrade": 1, "eligible": 2}
 
 
@@ -182,7 +176,8 @@ def dashboard():
                            employees=employees, view=view, current_year=current_year,
                            q=request.args.get("q", ""), sort=sort, dir=direction,
                            wg_label=wg_labels(), group_label=group_label,
-                           status_label=STATUS_LABEL)
+                           status_label=STATUS_LABEL,
+                           groups=scoring_config.all_groups(active_only=True))
 
 
 def _months_since(ts):
@@ -538,19 +533,17 @@ def _to_float(v):
 def _rescore_fields(sub):
     """Hitung ulang skor untuk dict `sub` (kolom DB) -> dict kolom skor utk update.
 
-    Re-resolve cpu_passmark dari cpu_model agar perubahan CPU ikut terhitung;
-    namun hormati nilai cpu_passmark tersimpan bila model tak dikenali.
+    cpu_passmark SELALU diturunkan ulang dari cpu_model (sama seperti saat submit
+    di routes_public): tak ada jalur input manual untuk PassMark, sehingga nilai
+    tersimpan hanyalah cache turunan. Menurunkan ulang membuat 'Hitung ulang semua'
+    ikut MEMPERBAIKI baris lama yang skornya menggelembung akibat pencocokan lama.
+    Bila model tak dikenali -> estimasi kasar dari thread/core (§6).
     """
     s = dict(sub)
     pm, est = cpu_passmark(s.get("cpu_model"))
     if est:
-        existing = _to_float(s.get("cpu_passmark"))
-        if existing:  # hormati nilai manual/tersimpan yang sudah ada
-            pm = int(existing)
-            est = False
-        else:
-            threads = _to_int(s.get("cpu_threads")) or _to_int(s.get("cpu_cores"))
-            pm = int(round(threads * PASSMARK_PER_THREAD)) if threads else 0
+        threads = _to_int(s.get("cpu_threads")) or _to_int(s.get("cpu_cores"))
+        pm = int(round(threads * PASSMARK_PER_THREAD)) if threads else 0
     s["cpu_passmark"] = pm
     s["cpu_estimated"] = est
     result = score_submission(s, current_year=datetime.now().year)
@@ -619,6 +612,132 @@ def recalc_laptop(device_id):
         n += 1
     flash(f"Skor {n} riwayat laptop ini diperbarui.", "ok")
     return redirect(url_for("admin.laptop_detail", device_id=device_id))
+
+
+@admin_bp.route("/bulk-placement", methods=["POST"])
+@login_required
+def bulk_placement():
+    """Ubah PENEMPATAN (kelompok kerja / perusahaan / lokasi) untuk banyak laptop
+    terpilih sekaligus. Bekerja pada submission TERBARU tiap laptop (id dikirim dari
+    checkbox di tab Laptop). Hanya field yang diisi yang diterapkan; field kosong
+    dibiarkan. Skor dihitung ulang (kelompok memengaruhi profil/skor)."""
+    ids = []
+    for raw in request.form.getlist("ids"):
+        v = _to_int(raw)
+        if v is not None:
+            ids.append(v)
+    if not ids:
+        flash("Tidak ada laptop yang dipilih.", "error")
+        return redirect(url_for("admin.dashboard"))
+
+    # Susun perubahan dari field yang DIISI saja (kosong = jangan ubah).
+    changes = {}
+    wg = (request.form.get("set_work_group") or "").strip()
+    if wg:
+        valid_keys = {g["key"] for g in scoring_config.all_groups()}
+        valid_keys.add("other")
+        if wg not in valid_keys:
+            flash("Kelompok kerja tidak valid.", "error")
+            return redirect(url_for("admin.dashboard"))
+        changes["work_group"] = wg
+        if wg == "other":
+            other = (request.form.get("set_work_group_other") or "").strip()
+            changes["work_group_other"] = other or None
+        else:
+            changes["work_group_other"] = None
+    company = (request.form.get("set_holder_company") or "").strip()
+    if company:
+        changes["holder_company"] = company
+    location = (request.form.get("set_holder_location") or "").strip()
+    if location:
+        changes["holder_location"] = location
+
+    if not changes:
+        flash("Tidak ada field penempatan yang diisi untuk diubah.", "error")
+        return redirect(url_for("admin.dashboard"))
+
+    n = 0
+    for sid in ids:
+        sub = db.get_submission(sid)
+        if not sub:
+            continue
+        merged = {**sub, **changes}
+        data = dict(changes)
+        data.update(_rescore_fields(merged))  # kelompok memengaruhi skor
+        db.update_submission(sid, data)
+        n += 1
+
+    fields_txt = ", ".join(
+        lbl for key, lbl in (("work_group", "kelompok"),
+                             ("holder_company", "perusahaan"),
+                             ("holder_location", "lokasi"))
+        if key in changes)
+    flash(f"Penempatan ({fields_txt}) diperbarui untuk {n} laptop & skor dihitung ulang.", "ok")
+    return redirect(url_for("admin.dashboard"))
+
+
+@admin_bp.route("/bulk-placement-employee", methods=["POST"])
+@login_required
+def bulk_placement_employee():
+    """Ubah PENEMPATAN karyawan terpilih (kelompok / perusahaan / jabatan / status)
+    dari tab Karyawan. Bila kelompok diubah, submission TERBARU karyawan ikut
+    diselaraskan & skornya dihitung ulang agar penilaian konsisten."""
+    ids = []
+    for raw in request.form.getlist("ids"):
+        v = _to_int(raw)
+        if v is not None:
+            ids.append(v)
+    if not ids:
+        flash("Tidak ada karyawan yang dipilih.", "error")
+        return redirect(url_for("admin.dashboard", view="karyawan"))
+
+    emp_changes = {}
+    wg = (request.form.get("set_work_group") or "").strip()
+    wg_other = (request.form.get("set_work_group_other") or "").strip()
+    if wg:
+        valid_keys = {g["key"] for g in scoring_config.all_groups()}
+        valid_keys.add("other")
+        if wg not in valid_keys:
+            flash("Kelompok kerja tidak valid.", "error")
+            return redirect(url_for("admin.dashboard", view="karyawan"))
+        emp_changes["current_work_group"] = wg
+    company = (request.form.get("set_holder_company") or "").strip()
+    if company:
+        emp_changes["company"] = company
+    position = (request.form.get("set_holder_position") or "").strip()
+    if position:
+        emp_changes["current_position"] = position
+    status = (request.form.get("set_status") or "").strip()
+    if status in ("active", "resigned"):
+        emp_changes["status"] = status
+
+    if not emp_changes:
+        flash("Tidak ada field penempatan yang diisi untuk diubah.", "error")
+        return redirect(url_for("admin.dashboard", view="karyawan"))
+
+    n = 0
+    for eid in ids:
+        hist = db.employee_with_history(eid)
+        if not hist.get("employee"):
+            continue
+        db.update_employee(eid, emp_changes)
+        # Kelompok berubah -> selaraskan submission terbaru + hitung ulang skor.
+        if wg and hist["submissions"]:
+            latest = hist["submissions"][0]
+            sdata = {"work_group": wg,
+                     "work_group_other": (wg_other or None) if wg == "other" else None}
+            sdata.update(_rescore_fields({**latest, **sdata}))
+            db.update_submission(latest["id"], sdata)
+        n += 1
+
+    fields_txt = ", ".join(
+        lbl for key, lbl in (("current_work_group", "kelompok"),
+                             ("company", "perusahaan"),
+                             ("current_position", "jabatan"),
+                             ("status", "status"))
+        if key in emp_changes)
+    flash(f"Penempatan ({fields_txt}) diperbarui untuk {n} karyawan.", "ok")
+    return redirect(url_for("admin.dashboard", view="karyawan"))
 
 
 @admin_bp.route("/recalc-all", methods=["POST"])
@@ -761,226 +880,27 @@ def employee_export_pdf(employee_id):
                     headers={"Content-Disposition": f"attachment; filename={fname}"})
 
 
-# ---------------------------------------------------------------------------
-# Export XLSX (data terbaru per laptop) — anti formula injection.
-# ---------------------------------------------------------------------------
-_EXPORT_COLUMNS = [
-    # — Identitas pengisian & pemegang —
-    ("submitted_at",        "Waktu Pengisian"),
-    ("source",              "Sumber Data"),
-    ("holder_name",         "Nama Karyawan"),
-    ("holder_position",     "Jabatan"),
-    ("holder_company",      "Perusahaan"),
-    ("holder_location",     "Lokasi Penempatan"),
-    ("work_group",          "Kelompok Kerja"),
-    ("laptop_status",       "Status Kepemilikan"),
-    # — Identitas aset —
-    ("serial_number",       "Nomor Seri"),
-    ("asset_no",            "No. Aset"),
-    ("hostname",            "Hostname"),
-    ("mac_address",         "MAC Address"),
-    ("device_brand",        "Merek"),
-    ("device_model",        "Model Laptop"),
-    # — CPU —
-    ("cpu_model",           "CPU / Prosesor"),
-    ("cpu_passmark",        "Skor CPU (PassMark)"),
-    ("cpu_cores",           "Core CPU"),
-    ("cpu_threads",         "Thread CPU"),
-    ("cpu_arch",            "Arsitektur CPU"),
-    ("cpu_speed_mhz",       "Kecepatan CPU (MHz)"),
-    ("cpu_usage_pct",       "Pemakaian CPU (%)"),
-    # — GPU —
-    ("gpu",                 "GPU / Kartu Grafis"),
-    # — RAM —
-    ("ram_gb",              "RAM (GB)"),
-    ("ram_type",            "Tipe RAM"),
-    ("ram_speed_mhz",       "Kecepatan RAM (MHz)"),
-    ("ram_usage_pct",       "Pemakaian RAM (%)"),
-    ("ram_usage_gb",        "RAM Terpakai (GB)"),
-    # — Motherboard & RAM (board) —
-    ("motherboard",         "Motherboard"),
-    ("ram_slots_used",      "Slot RAM Terisi"),
-    ("ram_slots_total",     "Slot RAM Total"),
-    ("ram_max_gb",          "RAM Maksimum (GB)"),
-    # — Penyimpanan & OS —
-    ("ssd_gb",              "SSD (GB)"),
-    ("ssd_type",            "Tipe SSD"),
-    ("hdd_gb",              "HDD (GB)"),
-    ("disk_health_pct",     "Kesehatan Disk (%)"),
-    ("disk_health_raw",     "Status Disk"),
-    ("os_total_gb",         "Kapasitas Disk OS (GB)"),
-    ("os_free_gb",          "Sisa Disk OS (GB)"),
-    ("os_name",             "Sistem Operasi"),
-    # — Keamanan & kesiapan Windows 11 —
-    ("tpm_version",         "Versi TPM"),
-    ("secure_boot",         "Secure Boot"),
-    ("win11_ready",         "Siap Windows 11"),
-    ("win11_blockers",      "Kendala Windows 11"),
-    # — Baterai —
-    ("battery_pct",         "Daya Baterai saat Pengecekan (%)"),
-    ("battery_health_pct",  "Kesehatan Baterai (%)"),
-    ("battery_wh_full",     "Kapasitas Penuh Baterai (Wh)"),
-    ("battery_wh_design",   "Kapasitas Desain Baterai (Wh)"),
-    # — Kondisi & kelengkapan —
-    ("physical_condition",  "Kondisi Fisik"),
-    ("accessories",         "Kelengkapan"),
-    ("purchase_year",       "Tahun Pembelian"),
-    ("issues",              "Kerusakan / Keluhan"),
-    # — Hasil penilaian —
-    ("score_spec",          "Skor Spek"),
-    ("score_load",          "Skor Beban"),
-    ("score_total",         "Skor Total"),
-    ("status",              "Status Kelayakan"),
-    ("eol_year",            "Estimasi Pensiun"),
-    ("status_reasons",      "Alasan Status"),
-    # — Insight (turunan) —
-    ("_verdict",            "Kesimpulan"),
-    ("_two_axis",           "Spek vs Beban Nyata"),
-    ("_recommendations",    "Rekomendasi"),
-    ("_placement",          "Saran Penempatan"),
-]
-
-
-def _battery_health_value(r):
-    """Kesehatan baterai (%): pakai kolom tersimpan, else hitung dari Wh."""
-    h = r.get("battery_health_pct")
-    if h is not None:
-        return round(h)
-    full, design = r.get("battery_wh_full"), r.get("battery_wh_design")
-    if full and design and design > 0:
-        return round(full / design * 100)
-    return None
-
-
-def _sanitize(val):
-    """Cegah CSV/Excel formula injection: prefix ' bila diawali = + - @."""
-    if val is None:
-        return ""
-    s = str(val)
-    if s and s[0] in ("=", "+", "-", "@"):
-        return "'" + s
-    return s
-
-
-def _yes_no_dash(v):
-    """Map flag 1/0/None -> 'Ya'/'Tidak'/'-' untuk ekspor."""
-    if v in (1, "1"):
-        return "Ya"
-    if v in (0, "0"):
-        return "Tidak"
-    return "-"
-
-
-# Kolom sheet "Per Karyawan" (key pada baris latest_per_employee()).
-_EMPLOYEE_COLUMNS = [
-    ("emp_full_name",          "Nama"),
-    ("emp_company",            "Perusahaan"),
-    ("emp_current_position",   "Jabatan"),
-    ("_group",                 "Kelompok"),
-    ("_laptop",                "Laptop"),
-    ("device_serial",          "Serial"),
-    ("score_total",            "Skor"),
-    ("_status",                "Status"),
-    ("_employee_status",       "Status Karyawan"),
-    ("submitted_at",           "Terakhir"),
-]
-
-
-def _write_employee_sheet(wb, header_font, header_fill):
-    """Tambah sheet 'Per Karyawan' dari db.latest_per_employee()."""
-    try:
-        emps = db.latest_per_employee()
-    except AttributeError:
-        emps = []
-
-    ws = wb.create_sheet("Per Karyawan")
-    for col, (_key, label) in enumerate(_EMPLOYEE_COLUMNS, 1):
-        c = ws.cell(row=1, column=col, value=label)
-        c.font = header_font
-        c.fill = header_fill
-
-    for ri, r in enumerate(emps, 2):
-        for ci, (key, _label) in enumerate(_EMPLOYEE_COLUMNS, 1):
-            if key == "_group":
-                # Pakai kelompok karyawan terkini; fallback ke work_group submission.
-                wg = r.get("emp_current_work_group") or r.get("work_group")
-                value = wg_labels().get(wg, group_label(r))
-            elif key == "_laptop":
-                value = ((r.get("device_brand") or "") + " "
-                         + (r.get("device_model") or "")).strip() or "-"
-            elif key == "_status":
-                value = STATUS_LABEL.get(r.get("status"), r.get("status"))
-            elif key == "_employee_status":
-                value = "Aktif" if (r.get("emp_status") or "active") == "active" else "Resign"
-            else:
-                value = r.get(key)
-            ws.cell(row=ri, column=ci, value=_sanitize(value))
-
-    for col, (_k, label) in enumerate(_EMPLOYEE_COLUMNS, 1):
-        ws.column_dimensions[ws.cell(row=1, column=col).column_letter].width = max(12, len(label) + 2)
-    ws.freeze_panes = "A2"
-
-
 @admin_bp.route("/export.xlsx")
 @login_required
 def export_xlsx():
-    from openpyxl import Workbook
-    from openpyxl.styles import Font, PatternFill
+    """Export XLSX 4 sheet: Master (parameter) · Perhitungan (skor via RUMUS Excel
+    yang menunjuk ke Master, bisa ditelusuri) · Ringkasan (bahasa manusia, lookup) ·
+    Per Karyawan. Lihat xlsx_export.py untuk detail paritas dengan scoring.py."""
+    import xlsx_export
 
     rows = db.latest_per_device()
-    wb = Workbook()
-    ws = wb.active
-    ws.title = "Inventaris Laptop"
-
-    header_font = Font(bold=True, color="FFFFFF")
-    header_fill = PatternFill("solid", fgColor="4F46E5")
-    for col, (_key, label) in enumerate(_EXPORT_COLUMNS, 1):
-        c = ws.cell(row=1, column=col, value=label)
-        c.font = header_font
-        c.fill = header_fill
-
-    for ri, r in enumerate(rows, 2):
-        insight = build_insights(r)
-        placement = suggest_placement(r)
-        for ci, (key, _label) in enumerate(_EXPORT_COLUMNS, 1):
-            if key == "status_reasons":
-                value = "; ".join(_parse_reasons(r.get("status_reasons")))
-            elif key == "work_group":
-                value = group_label(r)
-            elif key == "status":
-                value = STATUS_LABEL.get(r.get("status"), r.get("status"))
-            elif key == "laptop_status":
-                value = LAPTOP_STATUS_LABEL.get(r.get("laptop_status"), r.get("laptop_status"))
-            elif key == "physical_condition":
-                value = PHYSICAL_CONDITION_LABEL.get(r.get("physical_condition"), r.get("physical_condition"))
-            elif key == "source":
-                value = SOURCE_LABEL.get(r.get("source"), r.get("source"))
-            elif key == "battery_health_pct":
-                value = _battery_health_value(r)
-            elif key == "secure_boot":
-                value = _yes_no_dash(r.get("secure_boot"))
-            elif key == "win11_ready":
-                value = _yes_no_dash(r.get("win11_ready"))
-            elif key == "_verdict":
-                value = insight["verdict"]
-            elif key == "_two_axis":
-                ta = insight.get("two_axis")
-                value = ta["headline"] if ta else None
-            elif key == "_recommendations":
-                value = " | ".join(insight["recommendations"])
-            elif key == "_placement":
-                value = (placement.get("text") if placement else None) or "Sesuai perannya"
-            else:
-                value = r.get(key)
-            ws.cell(row=ri, column=ci, value=_sanitize(value))
-
-    # Lebar kolom sederhana.
-    for col, (_k, label) in enumerate(_EXPORT_COLUMNS, 1):
-        ws.column_dimensions[ws.cell(row=1, column=col).column_letter].width = max(12, len(label) + 2)
-    ws.freeze_panes = "A2"
-
-    # — Sheet kedua: Per Karyawan —
-    _write_employee_sheet(wb, header_font, header_fill)
+    try:
+        employees = db.latest_per_employee()
+    except AttributeError:
+        employees = []
+    wb = xlsx_export.build_workbook(
+        rows,
+        groups=scoring_config.all_groups(active_only=False),
+        settings=scoring_config.get_settings(),
+        employees=employees,
+        wg_labels=wg_labels(),
+        status_label=STATUS_LABEL,
+    )
 
     buf = io.BytesIO()
     wb.save(buf)

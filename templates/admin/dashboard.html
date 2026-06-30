@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% block title %}Dashboard Inventaris Laptop — MTani{% endblock %}
+{% block head %}<style>[x-cloak]{display:none !important;}</style>{% endblock %}
 {% block content %}
 <div class="container mx-auto px-4 py-8 max-w-6xl">
 
@@ -106,12 +107,48 @@
         <button type="submit" class="bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium px-4 py-2 rounded-lg">Terapkan</button>
     </form>
 
-    <!-- List Laptop -->
+    <!-- List Laptop + ubah massal penempatan -->
+    <form method="POST" action="{{ url_for('admin.bulk_placement') }}"
+          x-data="{ count: 0, wg: '',
+                    recount() { this.count = this.$root.querySelectorAll('input.row-check:checked').length },
+                    toggleAll(e) { this.$root.querySelectorAll('input.row-check').forEach(c => c.checked = e.target.checked); this.recount(); } }"
+          @submit="if (count === 0) { $event.preventDefault(); return; } if (!confirm('Terapkan perubahan penempatan ke ' + count + ' laptop terpilih?')) { $event.preventDefault(); }">
+
+        <!-- Bar aksi massal: hanya field yang diisi yang diubah -->
+        <div class="bg-indigo-50 border border-indigo-100 rounded-xl p-3 mb-3 flex flex-wrap items-end gap-2">
+            <div class="text-xs font-semibold text-indigo-700 mr-1 mb-1.5">Ubah massal<br>penempatan:</div>
+            <div>
+                <label class="block text-[10px] text-slate-500 mb-0.5">Kelompok kerja</label>
+                <select name="set_work_group" x-model="wg" class="px-2 py-1.5 rounded-lg border border-slate-200 text-sm bg-white">
+                    <option value="">— jangan ubah —</option>
+                    {% for g in groups %}<option value="{{ g.key }}">{{ g.label }}</option>{% endfor %}
+                    <option value="other">Lainnya…</option>
+                </select>
+            </div>
+            <div x-show="wg === 'other'" x-cloak>
+                <label class="block text-[10px] text-slate-500 mb-0.5">Kelompok (Lainnya)</label>
+                <input type="text" name="set_work_group_other" class="px-2 py-1.5 rounded-lg border border-slate-200 text-sm" placeholder="teks bebas">
+            </div>
+            <div>
+                <label class="block text-[10px] text-slate-500 mb-0.5">Perusahaan</label>
+                <input type="text" name="set_holder_company" class="px-2 py-1.5 rounded-lg border border-slate-200 text-sm" placeholder="kosong = jangan ubah">
+            </div>
+            <div>
+                <label class="block text-[10px] text-slate-500 mb-0.5">Lokasi / Cabang</label>
+                <input type="text" name="set_holder_location" class="px-2 py-1.5 rounded-lg border border-slate-200 text-sm" placeholder="kosong = jangan ubah">
+            </div>
+            <button type="submit" :disabled="count === 0"
+                    class="bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed text-white text-sm font-medium px-4 py-2 rounded-lg">
+                Terapkan ke <span x-text="count">0</span> terpilih
+            </button>
+        </div>
+
     <div class="bg-white rounded-xl border border-slate-200 overflow-hidden">
         <div class="overflow-x-auto">
         <table class="w-full text-sm text-left">
             <thead class="bg-slate-50 border-b border-slate-200 text-slate-500 text-xs uppercase">
                 <tr>
+                    <th class="px-3 py-3 w-8"><input type="checkbox" @change="toggleAll($event)" title="Pilih semua" class="rounded border-slate-300 align-middle"></th>
                     <th class="px-4 py-3">Pemegang</th>
                     <th class="px-4 py-3">Kelompok</th>
                     <th class="px-4 py-3">Laptop</th>
@@ -126,6 +163,7 @@
             <tbody class="divide-y divide-slate-100">
                 {% for r in rows %}
                 <tr class="hover:bg-slate-50/60">
+                    <td class="px-3 py-3"><input type="checkbox" class="row-check rounded border-slate-300 align-middle" name="ids" value="{{ r.id }}" @change="recount()"></td>
                     <td class="px-4 py-3 font-semibold text-slate-800">{{ r.holder_name or '-' }}<div class="text-xs font-normal text-slate-400">{{ r.holder_company or '' }}</div></td>
                     <td class="px-4 py-3"><span class="px-2 py-0.5 rounded bg-slate-100 text-slate-600 text-xs">{{ group_label(r) }}</span></td>
                     <td class="px-4 py-3">{{ r.device_brand or '-' }} <span class="text-slate-400">{{ r.device_model or '' }}</span><div class="text-xs text-slate-400">{{ r.cpu_model or '' }}</div></td>
@@ -160,24 +198,69 @@
                         {% endif %}
                         {% endif %}
                     </td>
-                    <td class="px-4 py-3 text-right"><a href="{{ url_for('admin.laptop_detail', device_id=r.device_id) }}" class="text-indigo-600 hover:underline text-xs font-medium">Detail →</a></td>
+                    <td class="px-4 py-3 text-right"><a href="{{ url_for('admin.laptop_detail', device_id=r.device_id) }}" class="text-indigo-600 hover:underline text-xs font-medium whitespace-nowrap">Detail →</a></td>
                 </tr>
                 {% else %}
-                <tr><td colspan="9" class="px-4 py-10 text-center text-slate-400">Belum ada data.</td></tr>
+                <tr><td colspan="10" class="px-4 py-10 text-center text-slate-400">Belum ada data.</td></tr>
                 {% endfor %}
             </tbody>
         </table>
         </div>
     </div>
-    <p class="text-xs text-slate-400 mt-3">{{ rows|length }} laptop ditampilkan.</p>
+    </form>
+    <p class="text-xs text-slate-400 mt-3">{{ rows|length }} laptop ditampilkan. Centang baris lalu pakai bar di atas untuk ubah penempatan massal.</p>
 
     {# ======================= TAB KARYAWAN ======================= #}
     {% elif view == 'karyawan' %}
+    <form method="POST" action="{{ url_for('admin.bulk_placement_employee') }}"
+          x-data="{ count: 0, wg: '',
+                    recount() { this.count = this.$root.querySelectorAll('input.row-check:checked').length },
+                    toggleAll(e) { this.$root.querySelectorAll('input.row-check').forEach(c => c.checked = e.target.checked); this.recount(); } }"
+          @submit="if (count === 0) { $event.preventDefault(); return; } if (!confirm('Terapkan perubahan penempatan ke ' + count + ' karyawan terpilih?')) { $event.preventDefault(); }">
+
+        <!-- Bar aksi massal karyawan: hanya field yang diisi yang diubah -->
+        <div class="bg-indigo-50 border border-indigo-100 rounded-xl p-3 mb-3 flex flex-wrap items-end gap-2">
+            <div class="text-xs font-semibold text-indigo-700 mr-1 mb-1.5">Ubah massal<br>penempatan:</div>
+            <div>
+                <label class="block text-[10px] text-slate-500 mb-0.5">Kelompok kerja</label>
+                <select name="set_work_group" x-model="wg" class="px-2 py-1.5 rounded-lg border border-slate-200 text-sm bg-white">
+                    <option value="">— jangan ubah —</option>
+                    {% for g in groups %}<option value="{{ g.key }}">{{ g.label }}</option>{% endfor %}
+                    <option value="other">Lainnya…</option>
+                </select>
+            </div>
+            <div x-show="wg === 'other'" x-cloak>
+                <label class="block text-[10px] text-slate-500 mb-0.5">Kelompok (Lainnya)</label>
+                <input type="text" name="set_work_group_other" class="px-2 py-1.5 rounded-lg border border-slate-200 text-sm" placeholder="teks bebas">
+            </div>
+            <div>
+                <label class="block text-[10px] text-slate-500 mb-0.5">Perusahaan</label>
+                <input type="text" name="set_holder_company" class="px-2 py-1.5 rounded-lg border border-slate-200 text-sm" placeholder="kosong = jangan ubah">
+            </div>
+            <div>
+                <label class="block text-[10px] text-slate-500 mb-0.5">Jabatan</label>
+                <input type="text" name="set_holder_position" class="px-2 py-1.5 rounded-lg border border-slate-200 text-sm" placeholder="kosong = jangan ubah">
+            </div>
+            <div>
+                <label class="block text-[10px] text-slate-500 mb-0.5">Status</label>
+                <select name="set_status" class="px-2 py-1.5 rounded-lg border border-slate-200 text-sm bg-white">
+                    <option value="">— jangan ubah —</option>
+                    <option value="active">Aktif</option>
+                    <option value="resigned">Resign</option>
+                </select>
+            </div>
+            <button type="submit" :disabled="count === 0"
+                    class="bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed text-white text-sm font-medium px-4 py-2 rounded-lg">
+                Terapkan ke <span x-text="count">0</span> terpilih
+            </button>
+        </div>
+
     <div class="bg-white rounded-xl border border-slate-200 overflow-hidden">
         <div class="overflow-x-auto">
         <table class="w-full text-sm text-left">
             <thead class="bg-slate-50 border-b border-slate-200 text-slate-500 text-xs uppercase">
                 <tr>
+                    <th class="px-3 py-3 w-8"><input type="checkbox" @change="toggleAll($event)" title="Pilih semua" class="rounded border-slate-300 align-middle"></th>
                     <th class="px-4 py-3">Nama</th>
                     <th class="px-4 py-3">Perusahaan</th>
                     <th class="px-4 py-3">Jabatan</th>
@@ -192,6 +275,7 @@
             <tbody class="divide-y divide-slate-100">
                 {% for e in employees %}
                 <tr class="hover:bg-slate-50/60">
+                    <td class="px-3 py-3"><input type="checkbox" class="row-check rounded border-slate-300 align-middle" name="ids" value="{{ e.employee_id }}" @change="recount()"></td>
                     <td class="px-4 py-3 font-semibold text-slate-800">{{ e.emp_full_name or '-' }}</td>
                     <td class="px-4 py-3 text-slate-600">{{ e.emp_company or '-' }}</td>
                     <td class="px-4 py-3 text-slate-600">{{ e.emp_current_position or '-' }}</td>
@@ -203,16 +287,17 @@
                         {% if (e.emp_status or 'active') == 'active' %}<span class="px-2 py-0.5 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700">Aktif</span>
                         {% else %}<span class="px-2 py-0.5 rounded-full text-xs font-semibold bg-slate-100 text-slate-500">Resign</span>{% endif %}
                     </td>
-                    <td class="px-4 py-3 text-right"><a href="{{ url_for('admin.employee_detail', employee_id=e.employee_id) }}" class="text-indigo-600 hover:underline text-xs font-medium">Detail →</a></td>
+                    <td class="px-4 py-3 text-right"><a href="{{ url_for('admin.employee_detail', employee_id=e.employee_id) }}" class="text-indigo-600 hover:underline text-xs font-medium whitespace-nowrap">Detail →</a></td>
                 </tr>
                 {% else %}
-                <tr><td colspan="9" class="px-4 py-10 text-center text-slate-400">Belum ada data karyawan.</td></tr>
+                <tr><td colspan="10" class="px-4 py-10 text-center text-slate-400">Belum ada data karyawan.</td></tr>
                 {% endfor %}
             </tbody>
         </table>
         </div>
     </div>
-    <p class="text-xs text-slate-400 mt-3">{{ employees|length }} karyawan ditampilkan.</p>
+    </form>
+    <p class="text-xs text-slate-400 mt-3">{{ employees|length }} karyawan ditampilkan. Centang baris lalu pakai bar di atas untuk ubah penempatan massal.</p>
 
     {# ======================= TAB PENGADAAN ======================= #}
     {% elif view == 'pengadaan' %}

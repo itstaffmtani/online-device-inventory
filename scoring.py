@@ -189,13 +189,30 @@ def _load_cpu_table():
 _CPU_TABLE_CACHE = None
 
 
+def _model_tokens(key: str) -> set:
+    """Token "nomor model" dari nama CPU ternormalisasi.
+
+    Sebuah token dianggap nomor model bila memuat >= 3 digit (mis. '7530u',
+    '1335u', '155h', '2400', 'n4020'). Token keluarga seperti 'i5'/'i7'/'ryzen'
+    SENGAJA tidak dihitung agar tidak mencocokkan varian acak (lihat catatan
+    pencocokan di cpu_passmark).
+    """
+    return {t for t in key.split() if sum(c.isdigit() for c in t) >= 3}
+
+
 def cpu_passmark(cpu_model: str):
     """Lookup PassMark multi-thread untuk `cpu_model`.
 
     Mengembalikan (passmark:int, diperkirakan:bool).
-      - Cocok tabel cpu_benchmarks/CSV (exact lalu fuzzy) -> (skor, False).
-      - Tak ketemu -> (0, True). Estimasi berbasis jumlah thread (§6) dilakukan
-        di score_submission() yang punya cpu_threads/cpu_cores.
+      - Cocok tabel cpu_benchmarks/CSV -> (skor, False).
+      - Tak ketemu / nama generik -> (0, True). Estimasi berbasis jumlah thread
+        (§6) dilakukan di score_submission() yang punya cpu_threads/cpu_cores.
+
+    Pencocokan (anti-inflasi): exact dulu, lalu cocok berbasis NOMOR MODEL.
+    Substring bebas ('intel core i5' di dalam 'intel core i5 14600k') TIDAK lagi
+    dipakai karena membuat nama generik tercocok ke varian terkuat & menggelembungkan
+    skor. Bila nama CPU tak memuat nomor model (mis. hanya 'Intel Core i5'), kita
+    kembalikan (0, True) → ditandai diperkirakan, bukan menebak varian termahal.
     """
     key = normalize_cpu(cpu_model)
     if not key:
@@ -205,16 +222,27 @@ def cpu_passmark(cpu_model: str):
     # 1) exact
     if key in tabel:
         return int(tabel[key]), False
-    # 2) fuzzy: salah satu mengandung yang lain.
+
+    # 2) cocok via nomor model + tumpang-tindih token terbanyak (pilih KANDIDAT
+    #    TERBAIK, bukan yang pertama ditemui). Nama generik tanpa nomor model
+    #    tidak dicocokkan paksa.
+    key_models = _model_tokens(key)
+    if not key_models:
+        return 0, True
+    key_tokens = set(key.split())
+    best = None  # (n_model_cocok, n_token_cocok, -selisih_panjang, pm)
     for tk, pm in tabel.items():
-        if tk and (tk in key or key in tk):
-            return int(pm), False
-    # 3) cocokkan via token nomor model (mis. '7530u', '1335u', '155h').
-    model_tokens = set(re.findall(r"\b\d{3,5}[a-z]{1,3}\b", key))
-    if model_tokens:
-        for tk, pm in tabel.items():
-            if model_tokens & set(re.findall(r"\b\d{3,5}[a-z]{1,3}\b", tk)):
-                return int(pm), False
+        tk_models = _model_tokens(tk)
+        shared = key_models & tk_models
+        if not shared:
+            continue
+        tk_tokens = set(tk.split())
+        cand = (len(shared), len(key_tokens & tk_tokens),
+                -abs(len(tk_tokens) - len(key_tokens)), int(pm))
+        if best is None or cand > best:
+            best = cand
+    if best:
+        return best[3], False
     return 0, True
 
 
