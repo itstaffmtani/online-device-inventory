@@ -132,7 +132,8 @@ Lalu lewat browser: `/admin/skoring` → **"Hitung ulang semua"** — **wajib**,
 sinilah perbaikan pencocokan PassMark CPU menurunkan ulang skor lama yang sempat
 menggelembung (nama CPU generik dulu tercocok ke varian terkuat). Isi rilis:
 - Pencocokan PassMark diperketat; nama tanpa nomor model -> diperkirakan dari thread.
-- Export XLSX jadi 4 sheet (Master·Perhitungan berformula·Ringkasan·Per Karyawan).
+- Export XLSX jadi 4 sheet (Parameter·Data & Perhitungan·Ringkasan·Per Karyawan),
+  nilai dihitung di Python (selalu tampil; rumus openpyxl kosong di Protected View).
 - Bulk edit penempatan dari dashboard (tab Laptop & Karyawan).
 - Panah "Detail ->" tak lagi turun ke baris bawah.
 

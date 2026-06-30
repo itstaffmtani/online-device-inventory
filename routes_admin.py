@@ -883,9 +883,10 @@ def employee_export_pdf(employee_id):
 @admin_bp.route("/export.xlsx")
 @login_required
 def export_xlsx():
-    """Export XLSX 4 sheet: Master (parameter) · Perhitungan (skor via RUMUS Excel
-    yang menunjuk ke Master, bisa ditelusuri) · Ringkasan (bahasa manusia, lookup) ·
-    Per Karyawan. Lihat xlsx_export.py untuk detail paritas dengan scoring.py."""
+    """Export XLSX 4 sheet: Parameter (acuan) · Data & Perhitungan (semua masukan +
+    parameter + poin komponen + skor, sebagai NILAI) · Ringkasan (bahasa manusia) ·
+    Per Karyawan. Nilai dihitung di Python (mesin scoring yang sama) agar selalu
+    tampil — rumus openpyxl kosong di Protected View. Lihat xlsx_export.py."""
     import xlsx_export
 
     rows = db.latest_per_device()
